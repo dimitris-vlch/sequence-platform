@@ -1,0 +1,52 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0b1020;
+  color: #e6e9f2;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.app header h1 {
+  margin-bottom: 0.25rem;
+  font-size: 2rem;
+}
+
+.app .tagline {
+  margin-top: 0;
+  color: #9aa3bd;
+}
+
+.app section {
+  margin-top: 2rem;
+  border: 1px solid #232a44;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+
+.app h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.app .ok {
+  color: #5fd68a;
+}
+
+.app .error {
+  color: #ff7a7a;
+}
+
+.app code {
+  background: #161d33;
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+}
