@@ -94,7 +94,9 @@ def validate_sequence(
     if not normalised:
         raise SequenceValidationError("sequence is empty")
 
-    allowed = _VALID_CHARS[seq_type] if allow_ambiguous else _UNAMBIGUOUS_BASES[seq_type]
+    allowed = (
+        _VALID_CHARS[seq_type] if allow_ambiguous else _UNAMBIGUOUS_BASES[seq_type]
+    )
     invalid = frozenset(normalised) - allowed
     if invalid:
         raise SequenceValidationError(
@@ -108,8 +110,7 @@ def validate_sequence(
     effective_min = min_length if min_length is not None else 1
     if len(normalised) < effective_min:
         raise SequenceValidationError(
-            f"sequence length {len(normalised)} is below the minimum "
-            f"of {effective_min}"
+            f"sequence length {len(normalised)} is below the minimum of {effective_min}"
         )
     if max_length is not None and len(normalised) > max_length:
         raise SequenceValidationError(
