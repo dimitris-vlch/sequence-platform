@@ -11,3 +11,11 @@
 - Prefer project-local dependencies and virtual environments.
 - Do not execute arbitrary commands merely for convenience.
 - Before running a potentially destructive or irreversible command, stop and ask the user.
+
+## Command style
+
+- Prefer the Cline editor/file-writing mechanism for multiline file creation and modification.
+- Avoid shell heredocs for multiline file creation.
+- Avoid multiline Python embedded directly in shell commands.
+- Prefer short, single-purpose commands.
+- If shell quoting or parsing causes a failure, switch to a safer mechanism rather than repeatedly attempting increasingly complex shell syntax.
