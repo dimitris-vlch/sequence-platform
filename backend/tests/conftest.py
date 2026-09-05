@@ -2,11 +2,105 @@
 
 The shared hand-designed reference sequences used by known-answer tests
 live here, not copy-pasted into individual test files.
+
+The NCBI fixtures below are synthetic: no fixture ever performs a real
+network request. ``httpx.MockTransport`` intercepts every call the client
+would otherwise make to the live E-utilities API (§2 external-service
+policy: never a real external request from a committed test).
 """
 
+from collections.abc import Callable
+
+import httpx
 import pytest
 
 from sequence_platform.models import SeqType, SequenceRecord
+
+#: A synthetic accession/UID pair used across the NCBI client and route
+#: tests, paired with hand-built esearch/esummary/efetch responses below.
+NCBI_TEST_ACCESSION = "NM_000001.1"
+NCBI_TEST_UID = "12345"
+NCBI_TEST_SEQUENCE = "ACGTACGTACGT"
+
+#: Synthetic esummary entry for ``NCBI_TEST_UID``, shaped like a real NCBI
+#: esummary.fcgi JSON entry (subset of fields actually used by the client).
+NCBI_TEST_ESUMMARY_ENTRY = {
+    "uid": NCBI_TEST_UID,
+    "caption": "NM_000001",
+    "title": "Homo sapiens test gene (TEST), mRNA",
+    "slen": len(NCBI_TEST_SEQUENCE),
+    "organism": "Homo sapiens",
+}
+
+NCBI_TEST_FASTA = (
+    f">{NCBI_TEST_ACCESSION} Homo sapiens test gene (TEST), mRNA\n"
+    f"{NCBI_TEST_SEQUENCE}\n"
+)
+
+
+def _esearch_json(*, uids: list[str]) -> dict[str, object]:
+    """Build an esearch.fcgi-shaped JSON payload for ``uids``."""
+    return {
+        "esearchresult": {
+            "count": str(len(uids)),
+            "retmax": str(len(uids)),
+            "retstart": "0",
+            "idlist": uids,
+        }
+    }
+
+
+def _esummary_json(*, entries: dict[str, dict[str, object]]) -> dict[str, object]:
+    """Build an esummary.fcgi-shaped JSON payload for ``entries``."""
+    return {"result": {"uids": list(entries), **entries}}
+
+
+@pytest.fixture
+def ncbi_happy_path_handler() -> Callable[[httpx.Request], httpx.Response]:
+    """A transport handler that resolves ``NCBI_TEST_ACCESSION`` normally.
+
+    Routes by the E-utilities endpoint name in the request path: esearch
+    always finds ``NCBI_TEST_UID``, esummary returns
+    ``NCBI_TEST_ESUMMARY_ENTRY`` for it, and efetch returns
+    ``NCBI_TEST_FASTA``. Any other endpoint raises, so a test that hits an
+    unexpected endpoint fails loudly instead of silently.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("esearch.fcgi"):
+            return httpx.Response(200, json=_esearch_json(uids=[NCBI_TEST_UID]))
+        if request.url.path.endswith("esummary.fcgi"):
+            return httpx.Response(
+                200,
+                json=_esummary_json(entries={NCBI_TEST_UID: NCBI_TEST_ESUMMARY_ENTRY}),
+            )
+        if request.url.path.endswith("efetch.fcgi"):
+            return httpx.Response(
+                200, text=NCBI_TEST_FASTA, headers={"content-type": "text/plain"}
+            )
+        raise AssertionError(f"unexpected NCBI request: {request.url}")
+
+    return handler
+
+
+@pytest.fixture
+def ncbi_not_found_handler() -> Callable[[httpx.Request], httpx.Response]:
+    """A transport handler where esearch reports zero hits for any query."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("esearch.fcgi"):
+            return httpx.Response(200, json=_esearch_json(uids=[]))
+        raise AssertionError(f"unexpected NCBI request: {request.url}")
+
+    return handler
+
+
+@pytest.fixture
+def ncbi_transport(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> httpx.MockTransport:
+    """A ready-to-use mock transport for the happy path."""
+    return httpx.MockTransport(ncbi_happy_path_handler)
 
 
 @pytest.fixture

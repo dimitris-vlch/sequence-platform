@@ -123,25 +123,31 @@ def format_fasta(
     return buffer.getvalue()
 
 
-def parse_fasta(text: str) -> list[SequenceRecord]:
+def parse_fasta(text: str, *, infer_seq_type: bool = False) -> list[SequenceRecord]:
     """Parse a FASTA document into ``SequenceRecord`` instances.
 
     Args:
         text: The full FASTA document: any number of records, sequence
             lines wrapped at any width, LF or CRLF line endings.
+        infer_seq_type: When True, each record's seq_type is inferred from
+            its sequence content (contains ``U`` → RNA, else DNA) and the
+            sequence is validated against the inferred alphabet. The default
+            (False) keeps the DNA-only behaviour.
 
     Returns:
         The records in file order. Each record's accession is the first
         token of its title line, its description is the remainder of the
         title, its title is the full title line, its seq_type is
-        ``SeqType.DNA``, and its sequence is the upper-cased concatenation
-        of all of its sequence lines (possibly empty for title-only
-        records).
+        ``SeqType.DNA`` (or ``SeqType.RNA`` when ``infer_seq_type`` is True
+        and the sequence contains ``U``), and its sequence is the
+        upper-cased concatenation of all of its sequence lines (possibly
+        empty for title-only records).
 
     Raises:
         ValueError: If a title line carries no accession token, or if a
-            non-empty sequence contains characters outside the DNA
-            alphabet.
+            non-empty sequence contains characters outside the expected
+            alphabet (DNA by default; the inferred alphabet when
+            ``infer_seq_type`` is True).
     """
     if not text.strip():
         return []
@@ -157,9 +163,16 @@ def parse_fasta(text: str) -> list[SequenceRecord]:
             raise ValueError(
                 f"FASTA record {index} has an empty accession (title line: {raw_title!r})"
             )
-        raw_sequence = str(seq_record.seq)
+        raw_sequence = str(seq_record.seq).upper()
+        if infer_seq_type and "U" in raw_sequence:
+            # Uracil is the unambiguous DNA/RNA discriminator: NCBI
+            # normalises sequences, and IUPAC ambiguity codes contain
+            # neither U nor T.
+            seq_type = SeqType.RNA
+        else:
+            seq_type = SeqType.DNA
         if raw_sequence:
-            sequence = validate_sequence(raw_sequence)
+            sequence = validate_sequence(raw_sequence, seq_type)
         else:
             # Title-only record. validate_sequence rejects empty input, so
             # it is bypassed for these.
@@ -168,7 +181,7 @@ def parse_fasta(text: str) -> list[SequenceRecord]:
             SequenceRecord(
                 accession=accession,
                 sequence=sequence,
-                seq_type=SeqType.DNA,
+                seq_type=seq_type,
                 title=title,
                 description=description,
                 source_database="",

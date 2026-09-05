@@ -23,7 +23,7 @@ Rules:
   global state. Every function must be testable in isolation.
 - `database/` is the only layer allowed to use `httpx`. Each client
   implements the `SequenceDatabase` interface and converts provider
-  responses into the neutral domain model (`data/` package).
+  responses into the neutral domain model (the `models/` package).
 - `api/` is thin: validation, status-code mapping, schema serialization.
   It orchestrates `database/` and `analysis/` but implements no biology.
 - The analysis layer must be database-agnostic: the same function accepts a
@@ -92,3 +92,65 @@ they are made (Stage 2 onward).
   remaining endpoints appear as their stages land.
 - `.env` support: optional `NCBI_EMAIL` / `NCBI_API_KEY`; both have safe
   defaults; `.env` itself is gitignored; `.env.example` is committed.
+
+### Stage 3 (NCBI client, typed errors, database routes)
+
+- **Domain-model package**: §1's reference to a "`data/` package" was stale;
+  the neutral domain model is the `models/` package (`SequenceRecord`,
+  `SeqType`). §1 corrected.
+- **`SequenceDatabase` interface** (`database/base.py`): abstract base with a
+  `name` class attribute and three async methods — `fetch(accession) ->
+  SequenceRecord`, `search(query, *, max_results=20) -> list[SequenceSummary]`,
+  and `close()` (default no-op). `SequenceSummary` (accession, title, length,
+  source_database, metadata) is a database-layer type defined alongside the
+  interface; analysis consumes `SequenceRecord` only.
+- **NCBI client** (`database/ncbi/client.py::NCBISequenceDatabase`,
+  `name="ncbi"`): built on `httpx.AsyncClient` only (per §1). `Bio.Entrez` is
+  *not* used for I/O; Biopython is used solely for the FASTA payload (Stage 2
+  parser). Every request carries NCBI's `tool`/`email` parameters (plus
+  `api_key` when configured).
+  - Fetch flow: `esearch` (`count == 0` → `AccessionNotFoundError`) →
+    `esummary` (optional metadata; raw JSON preserved in
+    `metadata["ncbi_esummary"]`) → `efetch` (`rettype=fasta`,
+    `retmode=text`) → `parse_fasta(..., infer_seq_type=True)`; exactly one
+    parsed record is accepted. The client stamps `source_database="ncbi"`
+    (the Stage 2 parser contract).
+  - Retries (§2): 5xx / timeouts / network errors → up to `max_retries` (3)
+    with exponential backoff (base 1 s, cap 30 s) × jitter (0.5–1.5) →
+    `UpstreamUnavailableError` when exhausted; 429 → retried with
+    `min(Retry-After, backoff_cap)` (the cap bounds a hostile header) →
+    `RateLimitedError` when exhausted. Other 4xx (including NCBI's
+    "unknown accession" 400) are *not* retried and map to
+    `UpstreamUnavailableError`: after the esearch gate, a 400 means the
+    server rejected a request we had already confirmed valid.
+  - Seq-type inference for provider FASTA: sequence contains `U` → RNA, else
+    DNA (IUPAC ambiguity codes contain neither U nor T; a record with both
+    fails both alphabets → 422).
+  - Constructor parameters: `email`, `api_key`, `db` (default `nucleotide`),
+    `timeout` (30 s), `max_retries` (3), `backoff_base`/`backoff_cap`, and an
+    optional `transport` for tests (satisfies §2's mock-transport rule without
+    a new dependency; `respx` is not added to `pyproject.toml`).
+- **Exceptions** (`database/exceptions.py`): a typed, HTTP-agnostic hierarchy
+  — `DatabaseError`, `AccessionNotFoundError`, `UnknownDatabaseError`,
+  `MalformedPayloadError`, `RateLimitedError` (carries `retry_after`),
+  `UpstreamUnavailableError`. The API layer maps them: 404 / 404 / 422 / 429
+  (+ `Retry-After` header) / 503, any other `DatabaseError` → 502; handlers
+  are registered in `create_app()`, so routes never hand-map statuses.
+- **`parse_fasta`** (`database/ncbi/fasta.py`): one new keyword-only argument
+  `infer_seq_type: bool = False`; default behaviour is unchanged for existing
+  callers (pinned in `tests/database/test_fasta.py`), the NCBI client uses it
+  for mixed-alphabet provider FASTA.
+- **Registry** (`database/registry.py`): extended with lazy `get_database(name)`
+  (reads `Settings` at call time) and `registered_names()`; `ena` remains
+  advertised-but-unregistered until Stage 7 and resolves to 404.
+- **Routes** (`api/routes/databases.py`, schemas in `api/schemas.py`):
+  `GET /api/databases` (advertised names + `available` flag),
+  `GET /api/databases/{name}/sequences/{accession}`,
+  `GET /api/databases/{name}/search?query&max_results` (1–100).
+- **App lifecycle** (`main.py`): `create_app(databases=...)` accepts an
+  injected client map (used by tests with a mocked transport); otherwise a
+  lifespan builds one client per registered database at startup and closes them
+  at shutdown (one connection pool per provider, not per request).
+- **Tests**: canned NCBI fixtures (synthetic accessions, no real data) in
+  `tests/conftest.py` served via `httpx.MockTransport`; route tests via
+  `ASGITransport`. No committed test performs a real external request (§2).
