@@ -104,6 +104,54 @@ def ncbi_transport(
 
 
 @pytest.fixture
+def ncbi_not_found_transport(
+    ncbi_not_found_handler: Callable[[httpx.Request], httpx.Response],
+) -> httpx.MockTransport:
+    """A ready-to-use mock transport where every accession misses."""
+    return httpx.MockTransport(ncbi_not_found_handler)
+
+
+@pytest.fixture
+def ambiguous_reference_transport() -> httpx.MockTransport:
+    """A mock transport serving an ambiguity-only reference end-to-end.
+
+    Mirrors ``ncbi_happy_path_handler`` for a second synthetic record
+    whose sequence consists solely of IUPAC ambiguity codes: esearch
+    finds the UID, esummary returns a minimal entry, and efetch returns
+    the matching FASTA text.
+    """
+    accession = "AMB_0001.1"
+    uid = "55555"
+    sequence = "RYSWKMBDHVN" * 2
+    fasta = f">{accession} reference assembled from ambiguity codes only\n{sequence}\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("esearch.fcgi"):
+            return httpx.Response(200, json=_esearch_json(uids=[uid]))
+        if request.url.path.endswith("esummary.fcgi"):
+            return httpx.Response(
+                200,
+                json=_esummary_json(
+                    entries={
+                        uid: {
+                            "uid": uid,
+                            "caption": "AMB_0001",
+                            "title": "reference assembled from ambiguity codes only",
+                            "slen": len(sequence),
+                        }
+                    }
+                ),
+            )
+        if request.url.path.endswith("efetch.fcgi"):
+            return httpx.Response(
+                200, text=fasta, headers={"content-type": "text/plain"}
+            )
+        raise AssertionError(f"unexpected NCBI request: {request.url}")
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.fixture
 def all_nucleotides() -> SequenceRecord:
     """A record covering all 15 IUPAC nucleotide codes, each exactly once.
 

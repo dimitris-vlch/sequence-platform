@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .api.routes.analysis import router as analysis_router
+from .api.routes.comparisons import router as comparisons_router
 from .api.routes.databases import router as databases_router
 from .api.routes.health import router as health_router
 from .database.base import SequenceDatabase
@@ -128,6 +130,8 @@ def create_app(
     _register_exception_handlers(application)
     application.include_router(health_router, prefix="/api")
     application.include_router(databases_router, prefix="/api")
+    application.include_router(analysis_router, prefix="/api")
+    application.include_router(comparisons_router, prefix="/api")
     return application
 
 

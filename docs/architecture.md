@@ -154,3 +154,38 @@ they are made (Stage 2 onward).
 - **Tests**: canned NCBI fixtures (synthetic accessions, no real data) in
   `tests/conftest.py` served via `httpx.MockTransport`; route tests via
   `ASGITransport`. No committed test performs a real external request (§2).
+
+### Stage 5 (pairwise distance & similarity, compare route)
+
+- **`analysis/distance`** (`analysis/distance/base.py`): pure, deterministic
+  pairwise distance metrics. `hamming_distance(a, b)` (equal-length only;
+  raises `ValueError` on unequal lengths — never truncates or pads),
+  `percent_identity` (`100 * matches / length`, rounded to 2 dp; two empty
+  sequences → `100.0`), and `levenshtein_distance` (classic unit-cost edit
+  distance via a full O(n·m) DP table; works on unequal lengths). All three
+  upper-case both inputs once (reusing the Stage 4 `_normalised` helper) so
+  comparison is case-insensitive; ambiguity characters are treated as ordinary
+  characters (byte-for-byte equality — no IUPAC overlap).
+- **`analysis/similarity`** (`analysis/similarity/base.py`): pure pairwise
+  similarity built on the distance metrics. `normalized_edit_similarity`
+  (`100 * (1 - lev / max(len_a, len_b))`, clamped to `[0, 100]`, 2 dp; two
+  empty sequences → `100.0`), `jaccard_kmer_similarity(a, b, *, k=4)` (Jaccard
+  index over the k-mer sets as a percentage, 2 dp; both empty → `100.0`, one
+  empty → `0.0`; raises `ValueError` if `k < 1` or a non-empty sequence is
+  shorter than `k`), and the aggregating `compare(a, b, *, k=4) ->
+  ComparisonReport`. `ComparisonReport` carries `length_a`/`length_b`,
+  `hamming_distance` and `percent_identity` (both `None` when the sequences
+  differ in length), `levenshtein_distance`, `normalized_edit_similarity`, and
+  `jaccard_kmer_similarity`.
+- **`GET /api/compare`** (`api/routes/comparisons.py`, `ComparisonResponse` in
+  `api/schemas.py`): `accession_a` (required), `accession_b` (optional — empty
+  compares A against itself), `database` (default `ncbi`), and `k` (1–12,
+  default 4). Fetches both records via the selected client (Stage 3 registry
+  lookup; `UnknownDatabaseError` → 404) and returns the `ComparisonReport`
+  plus the accessions and the `k` used. The analysis itself is pure; the route
+  only wires HTTP to it.
+- **Tests**: known-answer tests in `tests/analysis/test_distance.py` and
+  `tests/analysis/test_similarity.py` (hand-computed reference values,
+  including unequal-length and empty-sequence edge cases); route tests in
+  `tests/api/test_comparisons.py` via `ASGITransport` with a mocked client
+  (no real external request, §2).

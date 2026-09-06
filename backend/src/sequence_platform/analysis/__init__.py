@@ -1,7 +1,15 @@
 """Sequence analysis layer.
 
-Pure, deterministic functions operating on Biopython ``Seq``/``str``
-inputs. This layer never touches the network, the database module, or
-any API response object. Modules: core, composition, statistics,
-similarity, distance, alignment, quality_control (Stage 2+ content).
+Pure, deterministic functions operating on ``SequenceRecord``/``str``
+inputs. This layer never touches the network, the ``database`` package,
+or any ``api`` object (§1 layering): a result is a pure function of the
+record it is given, so it is reproducible offline.
+
+Subpackages: ``core`` (intentionally empty stub — see
+``docs/architecture.md`` §6 Stage 4), ``statistics`` and
+``quality_control`` (Stage 4), ``distance`` and ``similarity`` (Stage 5).
 """
+
+from . import distance, quality_control, similarity, statistics
+
+__all__ = ["distance", "quality_control", "similarity", "statistics"]

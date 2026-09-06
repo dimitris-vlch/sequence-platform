@@ -59,3 +59,43 @@ class ErrorBody(BaseModel):
     """Uniform error payload for every mapped ``DatabaseError``."""
 
     detail: str
+
+
+class SequenceStatisticsResponse(BaseModel):
+    """Response body for ``GET /api/sequences/{accession}/statistics``."""
+
+    accession: str
+    seq_type: str
+    length: int
+    gc_content: float | None
+    base_composition: dict[str, float]
+    ambiguous_count: int
+    ambiguous_percentage: float
+    n_run_count: int
+    longest_n_run: int
+
+
+class QualityReportResponse(BaseModel):
+    """Response body for ``GET /api/sequences/{accession}/quality``."""
+
+    accession: str
+    passed: bool
+    issues: list[str]
+    min_length: int
+    max_ambiguous_fraction: float
+    max_n_run: int
+
+
+class ComparisonResponse(BaseModel):
+    """Response body for GET /api/compare (Stage 5)."""
+
+    accession_a: str
+    accession_b: str
+    length_a: int
+    length_b: int
+    hamming_distance: int | None
+    percent_identity: float | None
+    levenshtein_distance: int
+    normalized_edit_similarity: float
+    jaccard_kmer_similarity: float
+    k: int
