@@ -155,4 +155,3 @@ def levenshtein_distance(record_a: SequenceLike, record_b: SequenceLike) -> int:
                 row[j] = 1 + min(prev_row[j], row[j - 1], prev_row[j - 1])
 
     return dp[n][m]
-

@@ -27,9 +27,7 @@ def _get_client(request: Request, name: str) -> SequenceDatabase:
         UnknownDatabaseError: no client is registered under *name*; the
             API layer maps it to a 404.
     """
-    databases: dict[str, SequenceDatabase] = getattr(
-        request.app.state, "databases", {}
-    )
+    databases: dict[str, SequenceDatabase] = getattr(request.app.state, "databases", {})
     client = databases.get(name)
     if client is None:
         raise UnknownDatabaseError(name)

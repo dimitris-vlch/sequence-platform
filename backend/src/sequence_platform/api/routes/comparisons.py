@@ -30,9 +30,7 @@ def _get_client(request: Request, name: str | None) -> SequenceDatabase:
             API layer maps it to a 404.
     """
     key = "ncbi" if not name else name
-    databases: dict[str, SequenceDatabase] = getattr(
-        request.app.state, "databases", {}
-    )
+    databases: dict[str, SequenceDatabase] = getattr(request.app.state, "databases", {})
     client = databases.get(key)
     if client is None:
         raise UnknownDatabaseError(key)
@@ -52,12 +50,16 @@ async def compare_sequences(
     database: str | None = Query(
         default=None, description="Database name to fetch from (default ncbi)"
     ),
-    k: int = Query(default=4, ge=1, le=12, description="k-mer size for Jaccard similarity"),
+    k: int = Query(
+        default=4, ge=1, le=12, description="k-mer size for Jaccard similarity"
+    ),
 ) -> ComparisonResponse:
     """Compare two fetched sequences and return all Stage 5 metrics."""
     record_a = await _fetch_record(request, accession=accession_a, database=database)
     if accession_b:
-        record_b = await _fetch_record(request, accession=accession_b, database=database)
+        record_b = await _fetch_record(
+            request, accession=accession_b, database=database
+        )
     else:
         record_b = record_a
 

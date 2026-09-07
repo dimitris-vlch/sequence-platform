@@ -158,9 +158,7 @@ def test_n_runs(sequence: str, runs: int, longest: int) -> None:
 
 def test_record_and_string_agree() -> None:
     record = _record("ACGTNACGT")
-    assert statistics.sequence_length(record) == statistics.sequence_length(
-        "ACGTNACGT"
-    )
+    assert statistics.sequence_length(record) == statistics.sequence_length("ACGTNACGT")
     assert statistics.gc_content(record) == statistics.gc_content("ACGTNACGT")
     assert statistics.base_composition(record) == statistics.base_composition(
         "ACGTNACGT"

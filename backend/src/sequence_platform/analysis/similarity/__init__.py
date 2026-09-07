@@ -18,4 +18,3 @@ __all__ = [
     "jaccard_kmer_similarity",
     "normalized_edit_similarity",
 ]
-
