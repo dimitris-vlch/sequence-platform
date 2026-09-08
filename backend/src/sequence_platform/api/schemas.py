@@ -99,3 +99,22 @@ class ComparisonResponse(BaseModel):
     normalized_edit_similarity: float
     jaccard_kmer_similarity: float
     k: int
+
+
+class AlignmentResponse(BaseModel):
+    """Response body for GET /api/align (Stage 6)."""
+
+    accession_a: str
+    accession_b: str
+    mode: str
+    score: float
+    aligned_a: str
+    aligned_b: str
+    start_a: int
+    end_a: int
+    start_b: int
+    end_b: int
+    match_score: float
+    mismatch_score: float
+    open_gap_score: float
+    extend_gap_score: float

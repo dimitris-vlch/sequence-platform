@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .api.routes.alignment import router as alignment_router
 from .api.routes.analysis import router as analysis_router
 from .api.routes.comparisons import router as comparisons_router
 from .api.routes.databases import router as databases_router
@@ -132,6 +133,7 @@ def create_app(
     application.include_router(databases_router, prefix="/api")
     application.include_router(analysis_router, prefix="/api")
     application.include_router(comparisons_router, prefix="/api")
+    application.include_router(alignment_router, prefix="/api")
     return application
 
 

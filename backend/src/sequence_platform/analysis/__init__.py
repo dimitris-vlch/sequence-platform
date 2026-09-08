@@ -7,9 +7,10 @@ record it is given, so it is reproducible offline.
 
 Subpackages: ``core`` (intentionally empty stub — see
 ``docs/architecture.md`` §6 Stage 4), ``statistics`` and
-``quality_control`` (Stage 4), ``distance`` and ``similarity`` (Stage 5).
+``quality_control`` (Stage 4), ``distance`` and ``similarity`` (Stage 5),
+``alignment`` (Stage 6).
 """
 
-from . import distance, quality_control, similarity, statistics
+from . import alignment, distance, quality_control, similarity, statistics
 
-__all__ = ["distance", "quality_control", "similarity", "statistics"]
+__all__ = ["alignment", "distance", "quality_control", "similarity", "statistics"]

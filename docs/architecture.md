@@ -189,3 +189,32 @@ they are made (Stage 2 onward).
   including unequal-length and empty-sequence edge cases); route tests in
   `tests/api/test_comparisons.py` via `ASGITransport` with a mocked client
   (no real external request, §2).
+
+## Stage 6 — Pairwise Alignment
+
+- **Scope**: `analysis/alignment` wraps Biopython `Bio.Align.PairwiseAligner`
+  (already a dependency since Stage 2) behind two pure functions,
+  `global_alignment` and `local_alignment`, plus a plain-dataclass
+  `AlignmentResult` (score, gapped strings, and the six coordinate ints).
+  No hand-rolled DP; the aligner is configured per call with the four
+  scoring parameters, all keyword-only with defaults
+  (`match_score=1.0`, `mismatch_score=-1.0`, `open_gap_score=-2.0`,
+  `extend_gap_score=-0.5`).
+- **Input handling**: both functions accept `SequenceLike` (str or
+  `SequenceRecord`), upper-case via the shared `_normalised` helper, and
+  raise `ValueError` on empty input. Tied optimal alignments (Biopython
+  returns them in internal order) are resolved deterministically by taking
+  `alignments[0]`.
+- **Route**: `GET /api/align` in `api/routes/alignment.py` mirrors the
+  Stage 5 comparisons pattern — `_get_client` → `_fetch_record` × 2 →
+  dispatch on `mode` → `AlignmentResponse` (Pydantic, in `schemas.py`).
+  Query params: `accession_a` (required), `accession_b` (optional, defaults
+  to self), `database` (default `"ncbi"`), `mode` (`"global"`|`"local"`,
+  default `"global"`), and the four score params (optional, same defaults).
+  The response echoes the accessions, mode, score, gapped strings,
+  coordinates, and the scoring parameters used.
+- **Tests**: known-answer tests in `tests/analysis/test_alignment.py`
+  (hand-computed scores for identical, mismatch, unequal-length, and
+  local-subregion cases; empty-input and case-insensitivity edge cases);
+  route tests in `tests/api/test_alignment.py` via `ASGITransport` with a
+  mocked client (no real external request, §2).
