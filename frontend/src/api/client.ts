@@ -42,8 +42,26 @@ export type {
   SequenceStatisticsResponse,
 } from "./types";
 
-/** Base path for every backend route (proxied to FastAPI by Vite in dev). */
-export const API_BASE_URL = "/api";
+/**
+ * Origin of the deployed backend API, or `""` when it is not configured.
+ *
+ * A trailing slash (easy to paste along with a copied URL) is ignored: an
+ * origin never ends in one, and `https://host//api/health` is a different
+ * path to the backend than `/api/health`.
+ */
+const apiOrigin = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+
+/**
+ * Base path for every backend route.
+ *
+ * Empty `VITE_API_URL` — the default, and what local development and the test
+ * suite run with — keeps the relative `/api` that the Vite dev server proxies
+ * to the FastAPI dev server (see `vite.config.ts`). A production build sets
+ * `VITE_API_URL` to the deployed backend's origin, so the same routes are
+ * requested from `<origin>/api/...`: a static build has no dev proxy, and the
+ * backend's `CORS_ORIGINS` must therefore list this site's origin.
+ */
+export const API_BASE_URL = `${apiOrigin}/api`;
 
 export function httpErrorDetail(status: number, body: string): string {
   if (body === "") {
