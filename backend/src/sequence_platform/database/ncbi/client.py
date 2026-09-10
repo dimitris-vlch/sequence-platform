@@ -42,6 +42,7 @@ confirmed to exist by the preceding ``esearch`` call.
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from typing import Any, ClassVar
 
@@ -61,6 +62,11 @@ from sequence_platform.models import SequenceRecord
 __all__ = ["NCBISequenceDatabase"]
 
 _EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+#: Retry decisions and terminal failures are logged (Stage 10) so a deployment
+#: can tell a transient upstream blip from a sustained outage. Logging only —
+#: no branch below changes what the client retries or returns.
+logger = logging.getLogger(__name__)
 
 
 class NCBISequenceDatabase(SequenceDatabase):
@@ -147,10 +153,23 @@ class NCBISequenceDatabase(SequenceDatabase):
                 response = await self._client.get(path, params=params)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "NCBI %s failed after %d retries: %s",
+                        path,
+                        self._max_retries,
+                        exc,
+                    )
                     raise UpstreamUnavailableError(
                         f"NCBI request to {path} failed after "
                         f"{self._max_retries} retries: {exc}"
                     ) from exc
+                logger.warning(
+                    "NCBI %s failed (%s); retrying (%d/%d)",
+                    path,
+                    exc,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._sleep_backoff(attempt)
                 attempt += 1
                 continue
@@ -158,21 +177,48 @@ class NCBISequenceDatabase(SequenceDatabase):
             if response.status_code == 429:
                 retry_after = self._parse_retry_after(response)
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "NCBI %s was rate-limited through all %d retries "
+                        "(last Retry-After=%s)",
+                        path,
+                        self._max_retries,
+                        retry_after,
+                    )
                     raise RateLimitedError(
                         f"NCBI rate-limited requests to {path} after "
                         f"{self._max_retries} retries",
                         retry_after=retry_after,
                     )
+                logger.warning(
+                    "NCBI %s rate-limited (429, Retry-After=%s); retrying (%d/%d)",
+                    path,
+                    retry_after,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._sleep_backoff(attempt, retry_after=retry_after)
                 attempt += 1
                 continue
 
             if response.status_code >= 500:
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "NCBI %s returned %d through all %d retries",
+                        path,
+                        response.status_code,
+                        self._max_retries,
+                    )
                     raise UpstreamUnavailableError(
                         f"NCBI returned {response.status_code} for {path} "
                         f"after {self._max_retries} retries"
                     )
+                logger.warning(
+                    "NCBI %s returned %d; retrying (%d/%d)",
+                    path,
+                    response.status_code,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._sleep_backoff(attempt)
                 attempt += 1
                 continue
@@ -181,6 +227,9 @@ class NCBISequenceDatabase(SequenceDatabase):
                 # Non-429 4xx: never retried. Covers NCBI's quirk of
                 # answering some malformed/unknown requests with a plain
                 # HTTP 400 on efetch/esummary.
+                logger.error(
+                    "NCBI %s returned %d (not retried)", path, response.status_code
+                )
                 raise UpstreamUnavailableError(
                     f"NCBI returned {response.status_code} for {path}"
                 )

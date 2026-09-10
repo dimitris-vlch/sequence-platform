@@ -58,9 +58,11 @@ sequence-platform/
 ├── .github/workflows/ci.yml   # backend (ruff + mypy + pytest) and frontend CI
 ├── backend/                   # FastAPI application (see backend/README.md)
 ├── frontend/                  # React application (see frontend/README.md)
-├── data/                      # local test fixtures (committed, read-only)
 └── docs/                      # architecture notes and stage decisions
 ```
+
+Test fixtures are committed inside `backend/tests/conftest.py`, which is the
+single source of the shared reference sequences.
 
 ## Getting started
 

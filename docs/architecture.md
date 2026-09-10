@@ -498,3 +498,99 @@ they are made (Stage 2 onward).
   block, instead of also duplicating it in the `record` sub-object
   (also pinned). The frontend needs no change: no component reads `metadata`
   (`SequenceDetail` renders only named record fields).
+
+### Stage 10 (integration testing and production hardening)
+
+- **Integration test layer** (`backend/tests/integration/`): a genuinely new
+  layer, not a relabelling of what existed. `tests/api/` exercises one endpoint
+  per test against a freshly built app; these tests build the app **once** and
+  drive a multi-step flow through it. `test_user_journeys.py` walks list
+  databases → search → fetch → statistics → quality → compare → align → export
+  for NCBI, repeats the journey for ENA, and pins the property no single-route
+  test can observe: *the same app* answering both sides, with each export
+  document compared field-for-field against the read endpoint that produced it
+  (`export["record"] == record`, `export["statistics"] == statistics`,
+  `export["quality"] == quality`, `alignment_export["alignment"] == alignment`,
+  and the align/text rows against the `/api/align` response). One error-path
+  test asserts an unknown accession/database maps to the same 404 JSON shape
+  across all three route families. Honest accounting: this adds cross-route
+  agreement and shared-app coverage, **not** new per-endpoint edge cases —
+  those were already thorough per route (Stages 3–9). It did surface one thing
+  the shared conftest handlers cannot express, though: a two-accession NCBI stub,
+  so the journey also compares *unequal-length* records (Hamming/identity `null`,
+  edit distance 2) instead of the same record with itself.
+- **Frontend flow test** (`frontend/src/App.flows.test.tsx`): one comparison
+  driven through the real `App` tree (panel tab → form → fetch → metrics →
+  export link), beyond the per-component tests and `App.test.tsx`'s
+  search→detail flow. No new dependency: no Playwright/Cypress exist in this
+  project and none were added.
+- **Error mapping (item 1)**: the six `database/exceptions.py` types were
+  already mapped (404 / 404 / 422 / 429 + `Retry-After` / 503, any other
+  `DatabaseError` → 502). The real gap was not a typed exception: `analysis/`
+  signals caller-contract violations with a plain `ValueError`, `/api/compare`
+  accepts `k` up to 12, and a record shorter than `k` therefore escaped the
+  ASGI app unhandled — `GET /api/compare?accession_a=<10 bp>&k=11` produced
+  `ValueError: sequence a (length 10) is shorter than k=11` out of the
+  application (verified before the fix; a 500 in production). `main.py` now
+  maps `ValueError` → 422 JSON, `SequenceValidationError` → 422 (a safety net:
+  the clients already convert it to `MalformedPayloadError`), and registers an
+  `Exception` → 500 handler that returns the platform's `{"detail": ...}` shape
+  while logging the traceback server-side. pydantic's `ValidationError` is a
+  `ValueError` subclass, so the `ValueError` handler re-raises it: a
+  response-model bug stays a 500 and is never blamed on the caller. `analysis/`
+  was not modified — the mapping belongs to the HTTP layer (§1).
+- **CORS (item 2)**: verified already correct, no change. The allowlist holds
+  the two Vite dev origins rather than a wildcard, and `allow_credentials=True`
+  is paired only with explicit origins (`*` plus credentials is the invalid
+  combination). **Flagged decision**: the deployment shape is undocumented — the
+  SPA reaches `/api` through the Vite proxy and no production origin appears
+  anywhere in the repository — so a configurable `CORS_ORIGINS` setting was not
+  invented. If the SPA is ever served from another origin, the constant in
+  `main.py` must become configuration.
+- **Configuration (item 3)**: verified already correct, no change. There is no
+  required configuration to fail fast on: `Settings` exposes two optional
+  `str | None` fields with safe defaults, `.env.example` shows them empty, and
+  the app starts with nothing set (`tests/test_config.py` pins that, and that
+  empty values are accepted while unknown keys are ignored via
+  `extra="ignore"`). Nothing can be malformed in a way that fails later: the
+  fields are plain strings, so no coercion can fail. Two notes recorded rather
+  than changed: values are read from `.env` relative to the working directory,
+  which is why the documented `cd backend` first step matters, and an unfilled
+  `.env` yields `""` rather than `None`, which the NCBI client drops anyway
+  (`_common_params()` only includes `email` when it is truthy).
+- **Logging (item 4)**: added, standard library only. `main.py` gained
+  `configure_logging()` (called at import; `basicConfig`, so a host process's
+  logging configuration always wins and repeated calls cannot stack handlers),
+  one access line per request (method, path, status, duration — path only, never
+  the query string), and a start-up line carrying the version. Both provider
+  clients now log every retry decision (WARNING: 5xx/timeout with attempt count,
+  429 with `Retry-After`), every exhausted or non-retried failure (ERROR), and
+  ENA's normal 404 (INFO). The change is additive: no retry decision, return
+  value, or exception type changed.
+- **Health (item 5)**: verified already correct, no change. `/api/health` is a
+  **liveness** probe (`ok`, `service`, `version`, `time`, advertised database
+  names) and deliberately not a readiness probe: making it depend on NCBI/ENA
+  reachability would make the endpoint exactly as reliable as the providers §2
+  calls unreliable, and would require a live request to test. Provider trouble
+  is already reported per request as a typed 404/429/503.
+- **Dependency pinning (item 6)**: assessed, no pin changed (out of scope).
+  Frontend: `package-lock.json` is committed and ranges are `^`/`~`, so installs
+  are reproducible — but CI and the README run `npm install`, which can
+  re-resolve; `npm ci` is the reproducible command. Backend: there is no lock
+  file at all, only lower bounds (`biopython>=1.85`, `fastapi>=0.115`, ...), so a
+  fresh `pip install -e ".[dev]"` may resolve different versions over time.
+  **Flagged risk**: the backend build is not bit-reproducible; adding a lock or
+  exact pins needs a dependency review, which this stage deliberately does not do.
+- **README/docs accuracy (item 7)**: the Getting-started commands were executed
+  as written (venv, `pip install -e ".[dev]"`, the documented
+  `uvicorn sequence_platform.main:app`, `npm install` / `npm test` /
+  `npm run build`), and the documented ports (backend 8000, Vite 5173) match
+  `frontend/vite.config.ts`'s proxy target `http://127.0.0.1:8000`. The Stage 8
+  ("Web interface and visualization") and Stage 9 ("Export and provenance")
+  roadmap rows are present and accurate. One clear inaccuracy fixed: the
+  repository-layout block listed a `data/` directory that does not exist (the
+  shared fixtures live in `backend/tests/conftest.py`); `backend/README.md`'s
+  layout line now also names the integration suite.
+- **CI**: unchanged and still accurate. `pytest` runs with
+  `testpaths = ["tests"]`, so `tests/integration/` is collected without a
+  workflow edit.

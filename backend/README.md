@@ -15,7 +15,7 @@ backend/
 │   ├── api/                    # thin HTTP layer: routes + Pydantic schemas
 │   ├── database/               # SequenceDatabase clients (NCBI, ENA, ...)
 │   └── analysis/               # pure, deterministic analysis modules
-└── tests/                      # pytest suite (mirrors src layout)
+└── tests/                      # pytest suite (unit, api, database, integration)
 ```
 
 Layering rules (enforced by review):

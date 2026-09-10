@@ -47,6 +47,7 @@ Retry policy (identical to the NCBI client, §2)
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from typing import Any, ClassVar
 
@@ -64,6 +65,11 @@ from sequence_platform.models import SequenceRecord
 
 #: Default base URL for ENA's browser REST API.
 DEFAULT_ENA_BASE_URL = "https://www.ebi.ac.uk/ena/browser/api"
+
+#: Retry decisions and terminal failures are logged (Stage 10), mirroring the
+#: NCBI client, so a deployment can tell a transient upstream blip from a
+#: sustained outage. Logging only — the retry policy itself is unchanged.
+logger = logging.getLogger(__name__)
 
 
 class ENASequenceDatabase(SequenceDatabase):
@@ -247,35 +253,76 @@ class ENASequenceDatabase(SequenceDatabase):
                 response = await self._client.request(method, url, params=params)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "ENA %s failed after %d retries: %s",
+                        url,
+                        self._max_retries,
+                        exc,
+                    )
                     raise UpstreamUnavailableError(
                         f"ENA request to {url} failed after "
                         f"{self._max_retries} retries: {exc}"
                     ) from exc
+                logger.warning(
+                    "ENA %s failed (%s); retrying (%d/%d)",
+                    url,
+                    exc,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._backoff(attempt, None)
                 attempt += 1
                 continue
 
             if response.status_code == 404:
+                logger.info("ENA %s has no record (404)", url)
                 raise AccessionNotFoundError(f"ENA returned 404 for {url}")
 
             if response.status_code == 429:
                 retry_after = self._parse_retry_after(response)
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "ENA %s was rate-limited through all %d retries "
+                        "(last Retry-After=%s)",
+                        url,
+                        self._max_retries,
+                        retry_after,
+                    )
                     raise RateLimitedError(
                         f"ENA rate-limited requests to {url} after "
                         f"{self._max_retries} retries",
                         retry_after=retry_after,
                     )
+                logger.warning(
+                    "ENA %s rate-limited (429, Retry-After=%s); retrying (%d/%d)",
+                    url,
+                    retry_after,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._backoff(attempt, retry_after)
                 attempt += 1
                 continue
 
             if response.status_code >= 500:
                 if attempt >= self._max_retries:
+                    logger.error(
+                        "ENA %s returned %d through all %d retries",
+                        url,
+                        response.status_code,
+                        self._max_retries,
+                    )
                     raise UpstreamUnavailableError(
                         f"ENA returned {response.status_code} for {url} "
                         f"after {self._max_retries} retries"
                     )
+                logger.warning(
+                    "ENA %s returned %d; retrying (%d/%d)",
+                    url,
+                    response.status_code,
+                    attempt + 1,
+                    self._max_retries,
+                )
                 await self._backoff(attempt, None)
                 attempt += 1
                 continue
@@ -283,6 +330,9 @@ class ENASequenceDatabase(SequenceDatabase):
             if response.status_code >= 400:
                 # Non-429 4xx: never retried (a 400/403 will not succeed
                 # on retry). 404 was handled above.
+                logger.error(
+                    "ENA %s returned %d (not retried)", url, response.status_code
+                )
                 raise UpstreamUnavailableError(
                     f"ENA returned {response.status_code} for {url}"
                 )
