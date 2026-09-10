@@ -8,6 +8,10 @@ prescribes) must not break it either.
 Each test runs from an empty temporary directory, so a developer's local
 ``backend/.env`` can never change the outcome — the settings file is read
 relative to the working directory.
+
+``CORS_ORIGINS`` follows the same "nothing is required" rule: unset (or
+blank) means the dev-origin defaults, so a deployment that has not been
+told its SPA's origin behaves exactly like local development.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from sequence_platform.config import Settings, get_settings
+from sequence_platform.config import DEFAULT_CORS_ORIGINS, Settings, get_settings
 
 
 def test_settings_need_no_environment_at_all(
@@ -65,3 +69,50 @@ def test_get_settings_reads_the_current_environment(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NCBI_EMAIL", "current@example.com")
     assert get_settings().ncbi_email == "current@example.com"
+
+
+def test_cors_origins_fall_back_to_the_dev_origins_when_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unconfigured means the documented local setup, not an empty allowlist.
+
+    ``delenv`` rather than a bare assertion: the test must not depend on the
+    developer's shell, and the module docstring promises the same outcome
+    from an empty working directory.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    settings = Settings()
+    assert settings.cors_origins is None
+    assert settings.cors_origin_list == DEFAULT_CORS_ORIGINS
+
+
+def test_cors_origins_are_parsed_from_a_comma_separated_environment_value(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The deployed SPA origin is configuration, and whitespace is tolerated."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "CORS_ORIGINS", "https://sequence-platform.example.com, https://spa.example.com"
+    )
+    settings = Settings()
+    assert settings.cors_origins == (
+        "https://sequence-platform.example.com, https://spa.example.com"
+    )
+    assert settings.cors_origin_list == [
+        "https://sequence-platform.example.com",
+        "https://spa.example.com",
+    ]
+
+
+def test_blank_cors_origins_count_as_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``CORS_ORIGINS=`` (what an unfilled ``.env`` yields) is not an empty list.
+
+    An empty allowlist would silently reject every cross-origin caller, so a
+    blank value has to mean "not configured" rather than "allow nothing".
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CORS_ORIGINS", "  ")
+    assert Settings().cors_origin_list == DEFAULT_CORS_ORIGINS

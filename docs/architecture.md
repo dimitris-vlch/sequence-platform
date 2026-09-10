@@ -546,7 +546,8 @@ they are made (Stage 2 onward).
   SPA reaches `/api` through the Vite proxy and no production origin appears
   anywhere in the repository — so a configurable `CORS_ORIGINS` setting was not
   invented. If the SPA is ever served from another origin, the constant in
-  `main.py` must become configuration.
+  `main.py` must become configuration. **Resolved in Stage 11** (below): the
+  constant became the default for the new `CORS_ORIGINS` setting.
 - **Configuration (item 3)**: verified already correct, no change. There is no
   required configuration to fail fast on: `Settings` exposes two optional
   `str | None` fields with safe defaults, `.env.example` shows them empty, and
@@ -594,3 +595,45 @@ they are made (Stage 2 onward).
 - **CI**: unchanged and still accurate. `pytest` runs with
   `testpaths = ["tests"]`, so `tests/integration/` is collected without a
   workflow edit.
+
+### Stage 11 (production deployment — backend on Render)
+
+- **Scope**: §5 lists cloud infrastructure as out of scope "unless explicitly
+  requested in a future stage"; deploying the backend is that explicit request,
+  and the shape stays minimal — one managed Python web service defined by
+  `render.yaml` at the repository root (`rootDir: backend`), no container, no
+  database, no background worker, no orchestrator.
+- **CORS (this resolves the Stage 10 flag)**: `Settings.cors_origins` is a new
+  optional, comma-separated string, and `cors_origin_list` is the parsed
+  allowlist `main.py` now passes to `CORSMiddleware`; the constant that used to
+  live in `main.py` moved to `config.DEFAULT_CORS_ORIGINS` and became the
+  fallback when the setting is unset. `allow_credentials=True`, `allow_methods`
+  and `allow_headers` are untouched, so the Stage 10 prohibition still holds:
+  a wildcard is never produced, because `["*"]` plus credentials is the invalid
+  pairing. Blank counts as unset — an unfilled `.env` yields `""` rather than
+  `None` (the same quirk Stage 10 recorded for `NCBI_EMAIL`), and an empty
+  allowlist would silently reject every cross-origin caller instead of falling
+  back to local development. Local behaviour is therefore unchanged, and
+  `tests/test_config.py` pins all three cases (unset → dev origins, set →
+  parsed list, blank → dev origins).
+- **`render.yaml` (deployment config)**: build command `pip install -e .` — the
+  `dev` extra would install ruff/mypy/pytest that the running service never
+  imports, and `pyproject.toml` declares no non-dev extras group, so the bare
+  project install is the complete runtime set; start command
+  `uvicorn sequence_platform.main:app --host 0.0.0.0 --port $PORT`, where
+  `$PORT` is injected by Render (8000 is never hardcoded);
+  `healthCheckPath: /api/health`, i.e. the Stage 10 liveness probe, which
+  depends on no provider, so a deploy cannot be gated on NCBI/ENA
+  reachability. `NCBI_EMAIL`, `NCBI_API_KEY` and `CORS_ORIGINS` are declared
+  `sync: false`: no value is stored in the repository, they are filled in the
+  Render dashboard's Environment tab (§2's rule that provider credentials come
+  from the environment). `PYTHON_VERSION` is pinned to a fully qualified 3.12
+  because Render's default for a newly created service is newer than the
+  interpreters CI covers; that is a deliberate pin, not a floating latest.
+  `plan: free` is declared explicitly so the created service cannot silently
+  land on a paid plan; the accepted trade-off is idle spin-down, so the first
+  request after a quiet period pays a cold start.
+- **Known follow-up**: `CORS_ORIGINS` stays unset until the SPA is deployed
+  (Cloudflare Pages) and its origin exists. It is set in the Render dashboard,
+  not in this repository, because there is no committed production origin to
+  point at — the documented local setup keeps using the Vite proxy.

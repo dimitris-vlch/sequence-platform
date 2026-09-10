@@ -1,0 +1,57 @@
+# Render Blueprint for the Sequence Platform backend (FastAPI).
+#
+# Render reads this file from the repository root when the service is created
+# ("New +" -> "Web Service" -> connect this repo) and prefills the service
+# configuration from it. Field reference: https://render.com/docs/blueprint-spec
+#
+# One managed web service only: no database, no container, no background
+# worker, no orchestrator (docs/architecture.md §5).
+services:
+  - type: web
+    name: sequence-platform-api
+    runtime: python
+    # Declared explicitly rather than left to a default: free keeps this
+    # deployment at zero cost. The trade-off is idle spin-down (the instance
+    # sleeps after inactivity, so the next request pays a cold start); switch
+    # to "starter" for an always-on instance.
+    plan: free
+    # Monorepo: the application lives in backend/. Render runs both commands
+    # below with this as the working directory, so neither re-enters it.
+    rootDir: backend
+    # Production install: the dev extra would also pull ruff, mypy and pytest,
+    # which the running service never imports. pyproject.toml declares no
+    # non-dev extras group, so the bare project install is the complete
+    # runtime dependency set.
+    buildCommand: pip install -e .
+    # Render injects $PORT; binding to it (never to a hardcoded 8000) is what
+    # makes the service reachable from Render's proxy.
+    startCommand: uvicorn sequence_platform.main:app --host 0.0.0.0 --port $PORT
+    # Liveness probe (GET /api/health) - it reports only the process and its
+    # version, never provider reachability, so a deploy is not gated on NCBI
+    # or ENA being up.
+    healthCheckPath: /api/health
+    # Deploy on every push to the linked branch (main), which is the same
+    # branch CI already gates.
+    autoDeploy: true
+    envVars:
+      # Build-toolchain pin, not application configuration. Render's default
+      # for a service created now is newer than the interpreters this project
+      # is tested on (requires-python >= 3.12; CI runs 3.12 and 3.13), so the
+      # production interpreter is pinned to a CI-covered version. Render
+      # requires a fully qualified version for this variable.
+      - key: PYTHON_VERSION
+        value: 3.12.12
+      # Both optional: the API works keyless, and a key only raises the NCBI
+      # request ceiling from 3 requests/second to 10. sync: false means the
+      # value is never stored in this repository - set it in the Render
+      # dashboard's Environment tab.
+      - key: NCBI_EMAIL
+        sync: false
+      - key: NCBI_API_KEY
+        sync: false
+      # Browser origins allowed to call /api cross-origin, comma-separated.
+      # Deliberately left without a value: unset (or blank) falls back to the
+      # Vite dev origins in config.py, and the frontend's own origin does not
+      # exist yet. Set the deployed frontend URL here once it is known.
+      - key: CORS_ORIGINS
+        sync: false

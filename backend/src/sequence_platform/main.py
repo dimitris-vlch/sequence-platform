@@ -24,6 +24,7 @@ from .api.routes.comparisons import router as comparisons_router
 from .api.routes.databases import router as databases_router
 from .api.routes.exports import router as exports_router
 from .api.routes.health import router as health_router
+from .config import get_settings
 from .database.base import SequenceDatabase
 from .database.exceptions import (
     AccessionNotFoundError,
@@ -35,9 +36,6 @@ from .database.exceptions import (
 )
 from .database.registry import get_database, registered_names
 from .validation import SequenceValidationError
-
-# Origins for the frontend dev server (Vite) during local development.
-DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 #: Root of this application's logger namespace; every module logs below it.
 PACKAGE_LOGGER_NAME = "sequence_platform"
@@ -214,15 +212,15 @@ def create_app(
     # event has run (e.g. httpx.ASGITransport without an explicit
     # `async with LifespanManager`) still sees an injected client map.
     application.state.databases = injected if injected is not None else {}
-    # CORS policy: the SPA talks to /api through the Vite proxy, so API and UI
-    # share an origin in every documented setup; a genuinely cross-origin
-    # deployment would need configuration instead of DEFAULT_CORS_ORIGINS
-    # (docs/architecture.md §6, Stage 10). Wildcards are deliberately avoided
-    # here: combining `allow_origins=["*"]` with `allow_credentials=True` is an
-    # invalid pairing.
+    # CORS policy: the browser allowlist is read from the CORS_ORIGINS setting
+    # (comma-separated), which is what a cross-origin deployment configures —
+    # the SPA talks to /api through the Vite proxy locally, so nothing needs to
+    # be set for the documented local setup (docs/architecture.md §6, Stage 11).
+    # Wildcards are deliberately avoided here: combining `allow_origins=["*"]`
+    # with `allow_credentials=True` is an invalid pairing.
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=DEFAULT_CORS_ORIGINS,
+        allow_origins=get_settings().cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
