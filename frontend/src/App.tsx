@@ -1,9 +1,23 @@
 import { useEffect, useState } from "react";
-import { fetchHealth, type HealthResponse } from "./api/client";
+
+import { errorMessage, fetchHealth, type HealthResponse } from "./api/client";
+import {
+  AlignmentView,
+  ComparisonView,
+  DatabaseSelector,
+  SequenceDetail,
+  SequenceSearch,
+} from "./components";
+
+/** The three top-level panels; plain conditional rendering (no router). */
+type View = "search" | "compare" | "align";
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [database, setDatabase] = useState("ncbi");
+  const [selectedAccession, setSelectedAccession] = useState("");
+  const [view, setView] = useState<View>("search");
 
   useEffect(() => {
     let cancelled = false;
@@ -15,7 +29,7 @@ export default function App() {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setHealthError(errorMessage(err));
         }
       });
     return () => {
@@ -39,9 +53,9 @@ export default function App() {
             {health.service} v{health.version} is running
             <small> (supported databases: {health.databases.join(", ")})</small>
           </p>
-        ) : error ? (
+        ) : healthError ? (
           <p className="error" data-testid="backend-status">
-            Cannot reach the backend ({error}). Start it with:
+            Cannot reach the backend ({healthError}). Start it with:
             <code> uvicorn sequence_platform.main:app --reload</code> in{" "}
             <code>backend/</code>, then refresh this page.
           </p>
@@ -50,13 +64,50 @@ export default function App() {
         )}
       </section>
 
-      <section aria-labelledby="next-steps-heading">
-        <h2 id="next-steps-heading">Next</h2>
-        <p>
-          Stage 1 skeleton. Sequence search and analysis features arrive in
-          the stages that follow.
-        </p>
-      </section>
+      <nav className="views" aria-label="Views">
+        <button
+          type="button"
+          aria-pressed={view === "search"}
+          onClick={() => setView("search")}
+        >
+          Search &amp; detail
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "compare"}
+          onClick={() => setView("compare")}
+        >
+          Compare
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "align"}
+          onClick={() => setView("align")}
+        >
+          Align
+        </button>
+      </nav>
+
+      {view === "search" ? (
+        <>
+          <DatabaseSelector value={database} onChange={setDatabase} />
+          <SequenceSearch database={database} onSelect={setSelectedAccession} />
+          {selectedAccession ? (
+            <SequenceDetail
+              database={database}
+              accession={selectedAccession}
+              key={`${database}:${selectedAccession}`}
+            />
+          ) : (
+            <p className="meta">Pick a search result to see its details.</p>
+          )}
+        </>
+      ) : view === "compare" ? (
+        <ComparisonView initialDatabase={database} />
+      ) : (
+        <AlignmentView initialDatabase={database} />
+      )}
     </main>
   );
 }
+

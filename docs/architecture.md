@@ -284,3 +284,114 @@ they are made (Stage 2 onward).
   missing accessions with an empty 200, that mapping would need revisiting.
   Likewise, ENA search fields beyond `accession`/`description` are treated as
   optional (`None`/`""`) and never invented.
+
+### Stage 8 (first React components)
+
+- **Scope**: the first real UI — `frontend/src/api/` (one typed wrapper per
+  backend route) and four components in `frontend/src/components/`
+  (`DatabaseSelector`, `SequenceSearch`, `SequenceDetail`, `ComparisonView`)
+  wired together in `App.tsx`. The two panels use plain conditional
+  rendering; no routing dependency was added (`react-router` is not in
+  `package.json`), and no new dependency of any kind — `fetch` directly, with
+  `vitest` + `@testing-library/react` as already installed since Stage 1.
+- **Type contract** (`frontend/src/api/types.ts`): one interface per Pydantic
+  response model in `api/schemas.py`, field-for-field —
+  `HealthResponse` (health route shape), `DatabaseInfo`/`DatabaseListResponse`,
+  `SearchHit`/`SearchResponse` (`length: number | null`, since ENA hits carry
+  none), `SequenceRecordOut`, `SequenceStatisticsResponse`
+  (`gc_content: number | null`), `QualityReportResponse`, `ComparisonResponse`
+  (`hamming_distance`/`percent_identity` nullable), `AlignmentResponse` — plus
+  the query-parameter types that are not response schemas (`CompareParams`,
+  `AlignParams`, `AlignmentMode`, `QualityThresholds`). `client.ts` re-exports
+  them, so a component imports its wrapper and its type from one place.
+- **API client** (`frontend/src/api/client.ts`): keeps the Stage 1
+  `API_BASE_URL` / `httpErrorDetail` / `fetchWithHttpError` helpers (a non-2xx
+  response becomes an `Error` carrying the backend's `{"detail": ...}`),
+  adds `errorMessage` for unknown throws, and exposes `fetchHealth`,
+  `fetchDatabases`, `fetchSequence`, `searchSequences`, `fetchStatistics`,
+  `fetchQuality`, `compareSequences`, `alignSequences`. `fetchStatistics` and
+  `fetchQuality` send the `database` parameter the API requires; undefined
+  query parameters are omitted so the server defaults apply (`k=4`,
+  `mode=global`, QC thresholds).
+- **Components**: `DatabaseSelector` loads `GET /api/databases` and disables
+  providers with `available: false` (they stay visible — the API advertises
+  them deliberately); `SequenceSearch` queries
+  `GET /api/databases/{name}/search` and lists the hits (a `null` length
+  renders as “—”); `SequenceDetail` fetches the record, its statistics, and
+  its QC report together behind one loading/error state; `ComparisonView`
+  owns its own database selector plus the two accession inputs and renders the
+  Stage 5 metrics from `GET /api/compare` (an empty accession B compares A
+  with itself, as documented).
+- **`App.tsx`**: header, the Stage 1 backend-status block (now using the
+  shared `errorMessage` helper), a search/compare toggle, the shared database
+  selector, and the panels. No biology and no status-code mapping in the
+  frontend: the API layer owns the error vocabulary, the UI only displays the
+  message it is given.
+- **Alignment**: `alignSequences` is implemented and tested as part of the
+  client layer (the endpoint must stay covered), but no alignment UI is built
+  in Stage 8 — alignment visualisation is explicitly out of scope for this
+  stage.
+- **Tests**: `frontend/src/test/apiMock.ts` stubs global `fetch` by
+  `"<METHOD> <pathname>"`, so component tests drive the real `client.ts` code
+  path with canned JSON and no network; `src/test/setup.ts` unmounts trees and
+  restores stubbed globals between tests; `vite.config.ts` gains a `test`
+  block (jsdom environment, `setupFiles`, `globals`) so the Stage 1
+  `setup.ts` is actually loaded — without it `vitest run` defaulted to the
+  Node environment and Testing Library matchers were never registered. Tests
+  are colocated as `src/**/*.test.tsx`; no test (and no component) contacts
+  anything but the local `/api` proxy — never NCBI or ENA directly.
+
+### Stage 8.5 (visualization layer)
+
+- **Scope**: the visual layer Stage 8 deferred — a base-composition chart and a
+  quality-metrics chart inside `SequenceDetail`, plus a new `AlignmentView`
+  that is the first UI to call the Stage 6 `/api/align` endpoint. One new
+  dependency: `recharts` (`^3.10.1`, React 19-compatible, TypeScript types
+  bundled), used for both charts — the one charting library in the project.
+  The alignment rendering deliberately does *not* use it: per-character
+  match/mismatch/gap colouring is coloured `<span>`s, not a chart, and forcing
+  character data into a chart library would fight its data model.
+- **`AlignmentResponse` shape (verified against `schemas.py`, not assumed)**:
+  `accession_a`, `accession_b`, `mode`, `score`, `aligned_a`, `aligned_b`,
+  `start_a`/`end_a`/`start_b`/`end_b`, and the four scores. There is **no CIGAR
+  string and no per-column data**; `analysis/alignment/base.py` builds the
+  aligned strings with `str(best[0])`/`str(best[1])` and documents `-` as the
+  gap character. `AlignmentView` therefore derives its per-column
+  classification from the two gapped strings (gap vs match vs mismatch) and
+  counts those columns itself — display arithmetic over returned strings, with
+  no re-implementation of the alignment algorithm.
+- **`AlignmentView`** (`components/AlignmentView.tsx`): mirrors
+  `ComparisonView` exactly — own `DatabaseSelector`
+  (`id="alignment-database-select"`), two accession inputs, one
+  loading/error state, the same `errorMessage` helper, and an omitted (not
+  empty) accession B so the API's "align A against itself" default applies. It
+  adds `mode` (`global`/`local`) and the four scoring inputs, all passed
+  through the existing `alignSequences()` wrapper — no new API function and no
+  change to `api/types.ts`. Rendered: score, column count, match/mismatch/gap
+  counts, aligned regions, the scoring used, and the two aligned rows with
+  three CSS classes (`col-match`, `col-mismatch`, `col-gap`) plus a legend. At
+  most 400 columns are rendered (one `<span>` each); beyond that the panel says
+  how many columns were withheld rather than truncating silently.
+- **Charts** (`SequenceDetail.tsx`, local components): base composition as a
+  `PieChart` donut plus a legend carrying the exact percentages (the numbers
+  stay readable text, the pie gives the shape at a glance); the QC report as a
+  horizontal `BarChart` of "% of threshold" per check — length vs
+  `min_length`, `ambiguous_percentage` vs `max_ambiguous_fraction × 100`,
+  longest N-run vs `max_n_run` — with a reference line at 100 and the exact
+  measured/threshold numbers listed beneath. Charts use fixed pixel sizes, not
+  `ResponsiveContainer`: the panel is a fixed-width column, and fixed sizes
+  render deterministically under jsdom. The pass/fail verdict is still the
+  backend's (`passed` + `issues`); the frontend does not re-derive QC
+  thresholds, and it does not recompute `base_composition`.
+- **`App.tsx`**: the toggle becomes three panels — `type View = "search" |
+  "compare" | "align"` — with the third nav button rendering `AlignmentView`;
+  still plain conditional rendering, still no routing dependency.
+- **Tests**: `AlignmentView.test.tsx` covers input → call → rendered alignment
+  (including asserting the three colour classes, the derived 6/1/1
+  match/mismatch/gap counts from a canned gapped fixture, `mode` forwarding,
+  the 400-column cap, the API-error path, and the required-accession guard);
+  `SequenceDetail.test.tsx` gains assertions that both charts render and that
+  the composition legend and quality rows carry the backend's numbers. All
+  network access stays stubbed via `test/apiMock.ts` (which gained
+  `ALIGNMENT_WITH_GAPS_RESPONSE`) — no test touches a live backend, and the
+  frontend still only ever calls `/api`.
