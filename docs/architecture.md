@@ -395,3 +395,106 @@ they are made (Stage 2 onward).
   network access stays stubbed via `test/apiMock.ts` (which gained
   `ALIGNMENT_WITH_GAPS_RESPONSE`) — no test touches a live backend, and the
   frontend still only ever calls `/api`.
+
+### Stage 9 (export and provenance)
+
+- **Export routes** (`api/routes/exports.py`): five GET endpoints, one per
+  target/format — `/api/export/sequence/{accession}/fasta`,
+  `/api/export/sequence/{accession}/json`, `/api/export/compare/json`,
+  `/api/export/align/json`, `/api/export/align/text`. Dedicated routes rather
+  than a `?format=` parameter on the existing endpoints: no existing route
+  varies its response shape by query parameter, each route here keeps one
+  static `response_model` (so the generated OpenAPI stays accurate), and no
+  route body branches on a format flag (§1 thin-API rule). Names echo the
+  endpoint each export serialises (`/api/compare` → `/api/export/compare/json`);
+  `database` is required where the read endpoint requires it (`/statistics`,
+  `/quality`) and optional-with-NCBI-default where `/compare` and `/align` are,
+  so the inconsistency the Stage 7 audit flagged remains open rather than
+  being silently changed. Every route returns
+  `Content-Disposition: attachment` with a sanitised filename.
+- **Shared builders instead of duplicated mapping**: `statistics_response` /
+  `quality_response` (`routes/analysis.py`), `comparison_response`
+  (`routes/comparisons.py`), `alignment_response` (`routes/alignment.py`) and
+  `get_client` / `to_record_out` (`routes/databases.py`, renamed from private
+  names) were extracted from the read routes, which now delegate to them.
+  Behaviour is unchanged and the existing route tests pass untouched; an
+  export can no longer drift from the endpoint it mirrors. The other route
+  modules keep their own private `_get_client` copies (not refactored here).
+- **Serialisation helpers** (`api/export.py`, FastAPI-free and unit-tested):
+  `provenance()` builds the §4 block (UTC `generated_at`, application and
+  version, one `ExportSource` per input record carrying accession, source
+  database, length, sequence MD5 digest and the raw provider metadata, plus the
+  analysis `parameters`); `sequence_md5()`, `safe_filename()` /
+  `content_disposition()` (accessions are user input and end up in a response
+  header, so everything outside `[A-Za-z0-9._-]` is replaced and an empty stem
+  becomes `export`), and `match_line()` / `alignment_text()`.
+- **Reused formatting, not reinvented**: FASTA comes from
+  `SequenceRecord.to_fasta()`, the domain model's entry point into
+  `database/ncbi/fasta.py` — the platform's single Biopython-backed FASTA
+  writer since Stage 2 (a route test asserts the retrieved FASTA round-trips
+  byte-for-byte). The alignment text match line is new code of necessity:
+  `analysis/alignment` returns only the two gapped strings (the Biopython
+  `Alignment` object is discarded), so Biopython's own `str(alignment)` display
+  is unreachable from the API layer and re-running the aligner would compute
+  rather than serialise. It emits `|` / `.` / space per column over the full
+  untruncated strings with padded labels, plus a header line carrying mode,
+  score and match/mismatch/gap counts — the same three-way classification the
+  Stage 8.5 alignment view uses for colouring.
+- **Formats**: a sequence exports as FASTA (header + sequence only — FASTA has
+  no place for statistics, and fetching them would cost two extra provider
+  calls) or as a self-contained JSON document (provenance + record +
+  statistics + QC report, with the QC thresholds echoed); a comparison and an
+  alignment export as JSON (`provenance` + the Stage 5/6 response schema); an
+  alignment also exports as pairwise text. No GenBank/XML/CSV, and no batch
+  export.
+- **Part B — ENA provenance fix** (`database/ena/client.py`): `fetch` now
+  retains the payload it always had in hand — `metadata["ena_fasta_raw"]` (the
+  response text) and `metadata["ena_request_url"]` (the URL actually
+  requested) — closing the asymmetry the Stage 7 audit flagged against NCBI's
+  `metadata["ncbi_esummary"]`. Same return type, same exceptions, same
+  normalized fields; the one existing test that pinned `metadata == {}`
+  (`tests/database/test_ena_client.py::test_fetch_happy_path`) was updated to
+  assert the new keys rather than the fix being avoided. Known trade-off: the
+  raw text duplicates the sequence for long records, so
+  `/sequences/{accession}` responses for ENA records now carry it as well.
+- **Frontend**: `api/types.ts` gains `ExportSource`, `ExportProvenance`,
+  `SequenceExportResponse`, `ComparisonExportResponse` and
+  `AlignmentExportResponse`; `api/client.ts` gains five pure URL builders
+  (`sequenceFastaExportUrl`, `sequenceJsonExportUrl`,
+  `comparisonJsonExportUrl`, `alignmentJsonExportUrl`,
+  `alignmentTextExportUrl`). Because the routes set `Content-Disposition`, the
+  triggers are plain `<a download>` links — no blob plumbing and no new
+  dependency. `SequenceDetail` (FASTA + JSON), `ComparisonView` (JSON) and
+  `AlignmentView` (JSON + text, rebuilt from the response so a download
+  reproduces what is on screen) render them only once a result exists.
+- **Tests**: `tests/api/test_exports.py` covers all five routes end to end with
+  injected mocked clients (FASTA round-trip for both providers; the JSON
+  envelopes with their provenance, MD5 digests and raw metadata; the Part B
+  assertion that an exported ENA record carries `ena_fasta_raw`; 404s for an
+  unknown accession and an unknown database; parameter forwarding for compare
+  and align) plus unit tests for the pure formatters. Frontend tests cover the
+  URL builders and the rendered link hrefs. No test performs a real external
+  request (§2).
+- **Metadata filtering on the plain record response** (`routes/databases.py`):
+  the ENA provenance payload (`metadata["ena_fasta_raw"]`, plus
+  `ena_request_url`) stays on the domain `SequenceRecord`, but `to_record_out()`
+  — the only HTTP-facing projection of a record — drops keys listed in one
+  documented place, `_PROVENANCE_ONLY_METADATA_KEYS`, via `compact_metadata()`.
+  The raw FASTA text duplicates the sequence and roughly doubled
+  `/api/databases/{name}/sequences/{accession}` (measured: 197 B → 346 B for the
+  12 bp fixture, 10 188 B → 20 290 B at 10 kb). The choice is a denylist rather
+  than an allowlist or a size heuristic: it changes nothing except the keys we
+  already know to be oversized (a future compact provider field still reaches
+  the response, where an allowlist would silently drop it), and the response
+  shape stays deterministic rather than depending on payload size. The filter
+  is a property of that response shape, not of ENA — a future oversized
+  provider payload is added to the same set. Compact metadata is untouched:
+  NCBI's `ncbi_esummary` still appears in the record response (pinned by
+  `test_fetch_sequence_happy_path`) and in export provenance
+  (`test_export_sequence_json_carries_record_statistics_quality_provenance`).
+  Exports keep the full payload in `provenance.sources[].metadata` (pinned by
+  `test_export_sequence_json_ena_retains_the_raw_provider_payload`), so in the
+  sequence JSON export the raw text now appears exactly once, in the provenance
+  block, instead of also duplicating it in the `record` sub-object
+  (also pinned). The frontend needs no change: no component reads `metadata`
+  (`SequenceDetail` renders only named record fields).

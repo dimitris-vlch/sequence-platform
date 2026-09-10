@@ -22,17 +22,22 @@ import type {
 
 export type {
   AlignParams,
+  AlignmentExportResponse,
   AlignmentMode,
   AlignmentResponse,
   CompareParams,
+  ComparisonExportResponse,
   ComparisonResponse,
   DatabaseInfo,
   DatabaseListResponse,
+  ExportProvenance,
+  ExportSource,
   HealthResponse,
   QualityReportResponse,
   QualityThresholds,
   SearchHit,
   SearchResponse,
+  SequenceExportResponse,
   SequenceRecordOut,
   SequenceStatisticsResponse,
 } from "./types";
@@ -187,4 +192,71 @@ export async function alignSequences(
     }),
   );
   return (await response.json()) as AlignmentResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Export download URLs (Stage 9)
+//
+// The export routes are GET endpoints that set `Content-Disposition:
+// attachment`, so a plain `<a href download>` triggers the download — no blob
+// plumbing and no fetch wrapper. These builders keep the URL shape (which
+// mirrors the read endpoint each export serialises) in one place.
+// ---------------------------------------------------------------------------
+
+/** URL that downloads one record as standard FASTA. */
+export function sequenceFastaExportUrl(
+  database: string,
+  accession: string,
+): string {
+  return withQuery(
+    `${API_BASE_URL}/export/sequence/${encodeURIComponent(accession)}/fasta`,
+    { database },
+  );
+}
+
+/** URL that downloads one record with statistics, QC report, and provenance. */
+export function sequenceJsonExportUrl(
+  database: string,
+  accession: string,
+): string {
+  return withQuery(
+    `${API_BASE_URL}/export/sequence/${encodeURIComponent(accession)}/json`,
+    { database },
+  );
+}
+
+/** URL that downloads a comparison as JSON. */
+export function comparisonJsonExportUrl(params: CompareParams): string {
+  return withQuery(`${API_BASE_URL}/export/compare/json`, {
+    accession_a: params.accessionA,
+    accession_b: params.accessionB,
+    database: params.database,
+    k: params.k,
+  });
+}
+
+/** URL that downloads an alignment as JSON. */
+export function alignmentJsonExportUrl(params: AlignParams): string {
+  return withQuery(`${API_BASE_URL}/export/align/json`, alignmentQuery(params));
+}
+
+/** URL that downloads a pairwise alignment as human-readable text. */
+export function alignmentTextExportUrl(params: AlignParams): string {
+  return withQuery(`${API_BASE_URL}/export/align/text`, alignmentQuery(params));
+}
+
+/** Query parameters shared by both alignment export formats. */
+function alignmentQuery(
+  params: AlignParams,
+): Record<string, string | number | undefined> {
+  return {
+    accession_a: params.accessionA,
+    accession_b: params.accessionB,
+    database: params.database,
+    mode: params.mode,
+    match_score: params.match_score,
+    mismatch_score: params.mismatch_score,
+    open_gap_score: params.open_gap_score,
+    extend_gap_score: params.extend_gap_score,
+  };
 }

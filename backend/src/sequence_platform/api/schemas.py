@@ -118,3 +118,58 @@ class AlignmentResponse(BaseModel):
     mismatch_score: float
     open_gap_score: float
     extend_gap_score: float
+
+
+class ExportSource(BaseModel):
+    """Provenance for one input record of an export (§4).
+
+    ``md5`` is the hex MD5 digest of the sequence exactly as the platform
+    holds it (upper-case, no whitespace), and ``metadata`` is the raw
+    provider payload the client retained (e.g. ``ncbi_esummary`` /
+    ``ena_fasta_raw``), so an exported document can be traced back to what
+    the archive actually returned.
+    """
+
+    accession: str
+    source_database: str
+    length: int
+    md5: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class ExportProvenance(BaseModel):
+    """The provenance block every JSON export carries (§4).
+
+    ``generated_at`` is a UTC ISO-8601 timestamp; ``sources`` holds one entry
+    per input record (two for a comparison or alignment); ``parameters``
+    holds the analysis parameters the exported result was computed with.
+    """
+
+    generated_at: str
+    application: str
+    version: str
+    sources: list[ExportSource]
+    parameters: dict[str, object] = Field(default_factory=dict)
+
+
+class SequenceExportResponse(BaseModel):
+    """Response body for ``GET /api/export/sequence/{accession}/json``."""
+
+    provenance: ExportProvenance
+    record: SequenceRecordOut
+    statistics: SequenceStatisticsResponse
+    quality: QualityReportResponse
+
+
+class ComparisonExportResponse(BaseModel):
+    """Response body for ``GET /api/export/compare/json``."""
+
+    provenance: ExportProvenance
+    comparison: ComparisonResponse
+
+
+class AlignmentExportResponse(BaseModel):
+    """Response body for ``GET /api/export/align/json``."""
+
+    provenance: ExportProvenance
+    alignment: AlignmentResponse

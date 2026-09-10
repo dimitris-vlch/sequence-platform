@@ -36,6 +36,57 @@ def _get_client(request: Request, name: str | None) -> SequenceDatabase:
     return client
 
 
+def alignment_response(
+    record_a: SequenceRecord,
+    record_b: SequenceRecord,
+    *,
+    mode: str,
+    match_score: float,
+    mismatch_score: float,
+    open_gap_score: float,
+    extend_gap_score: float,
+) -> AlignmentResponse:
+    """Build the Stage 6 alignment schema for two fetched records.
+
+    Shared with the Stage 9 export routes, so an exported alignment and the
+    ``/api/align`` response can never differ.
+    """
+    if mode == "local":
+        result = local_alignment(
+            record_a,
+            record_b,
+            match_score=match_score,
+            mismatch_score=mismatch_score,
+            open_gap_score=open_gap_score,
+            extend_gap_score=extend_gap_score,
+        )
+    else:
+        result = global_alignment(
+            record_a,
+            record_b,
+            match_score=match_score,
+            mismatch_score=mismatch_score,
+            open_gap_score=open_gap_score,
+            extend_gap_score=extend_gap_score,
+        )
+    return AlignmentResponse(
+        accession_a=record_a.accession,
+        accession_b=record_b.accession,
+        mode=mode,
+        score=result.score,
+        aligned_a=result.aligned_a,
+        aligned_b=result.aligned_b,
+        start_a=result.start_a,
+        end_a=result.end_a,
+        start_b=result.start_b,
+        end_b=result.end_b,
+        match_score=match_score,
+        mismatch_score=mismatch_score,
+        open_gap_score=open_gap_score,
+        extend_gap_score=extend_gap_score,
+    )
+
+
 @router.get("", response_model=AlignmentResponse)
 async def align_sequences(
     request: Request,
@@ -74,36 +125,10 @@ async def align_sequences(
     else:
         record_b = record_a
 
-    if mode == "local":
-        result = local_alignment(
-            record_a,
-            record_b,
-            match_score=match_score,
-            mismatch_score=mismatch_score,
-            open_gap_score=open_gap_score,
-            extend_gap_score=extend_gap_score,
-        )
-    else:
-        result = global_alignment(
-            record_a,
-            record_b,
-            match_score=match_score,
-            mismatch_score=mismatch_score,
-            open_gap_score=open_gap_score,
-            extend_gap_score=extend_gap_score,
-        )
-
-    return AlignmentResponse(
-        accession_a=record_a.accession,
-        accession_b=record_b.accession,
+    return alignment_response(
+        record_a,
+        record_b,
         mode=mode,
-        score=result.score,
-        aligned_a=result.aligned_a,
-        aligned_b=result.aligned_b,
-        start_a=result.start_a,
-        end_a=result.end_a,
-        start_b=result.start_b,
-        end_b=result.end_b,
         match_score=match_score,
         mismatch_score=mismatch_score,
         open_gap_score=open_gap_score,

@@ -85,4 +85,15 @@ describe("ComparisonView", () => {
       "unknown accession",
     );
   });
+
+  it("offers a JSON export of the computed comparison", async () => {
+    installFetchMock(ROUTES);
+    render(<ComparisonView />);
+    await userEvent.type(screen.getByLabelText("Accession A"), "NM_000001.1");
+    await userEvent.click(screen.getByRole("button", { name: "Compare" }));
+    expect(await screen.findByTestId("compare-export-json")).toHaveAttribute(
+      "href",
+      "/api/export/compare/json?accession_a=NM_000001.1&accession_b=NM_000001.1&database=ncbi&k=4",
+    );
+  });
 });

@@ -22,8 +22,15 @@ so the constructor has no ``tool``/``email``/``api_key`` parameters and no
 
 ``fetch`` deliberately makes a single request: the platform trusts
 ``parse_fasta``'s output as the source of truth for sequence content (the
-Stage 3 NCBI provenance pattern), and no consumer currently needs more, so
-no second metadata call is issued.
+Stage 3 NCBI provenance pattern), so no second metadata call is issued.
+
+Stage 9 (export and provenance) added the payload retention NCBI already
+had: ``fetch`` keeps the raw response text and the request URL under
+``metadata["ena_fasta_raw"]`` and ``metadata["ena_request_url"]``, so an
+exported ENA record can be traced back to exactly what ENA returned (§4).
+This is ENA's counterpart of NCBI's ``metadata["ncbi_esummary"]``; the value
+is raw FASTA text rather than a parsed JSON entry because ``/fasta`` returns
+text and nothing else.
 
 Retry policy (identical to the NCBI client, §2)
 -----------------------------------------------
@@ -115,7 +122,8 @@ class ENASequenceDatabase(SequenceDatabase):
             The fetched record with ``source_database="ena"`` stamped. The
             sequence content and length come from the parsed FASTA itself,
             which is the source of truth (Stage 3 provenance pattern); no
-            second metadata call is made.
+            second metadata call is made. The raw response text and the
+            request URL are retained in ``metadata`` for provenance (§4).
 
         Raises:
             AccessionNotFoundError: If ENA returns 404 for the accession.
@@ -124,7 +132,8 @@ class ENASequenceDatabase(SequenceDatabase):
             UpstreamUnavailableError / RateLimitedError: On exhausted
                 transient failures, per the module docstring.
         """
-        response = await self._request("GET", f"{self._base_url}/fasta/{accession}")
+        url = f"{self._base_url}/fasta/{accession}"
+        response = await self._request("GET", url)
         try:
             records = parse_fasta(response.text, infer_seq_type=True)
         except ValueError as exc:
@@ -138,6 +147,10 @@ class ENASequenceDatabase(SequenceDatabase):
             )
         record = records[0]
         record.source_database = self.name
+        record.metadata = {
+            "ena_fasta_raw": response.text,
+            "ena_request_url": url,
+        }
         return record
 
     async def search(

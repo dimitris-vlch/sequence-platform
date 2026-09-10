@@ -16,6 +16,7 @@ from conftest import (
     ENA_TEST_DESCRIPTION,
     ENA_TEST_SEQUENCE,
     NCBI_TEST_ACCESSION,
+    NCBI_TEST_ESUMMARY_ENTRY,
     NCBI_TEST_SEQUENCE,
 )
 from sequence_platform.database.base import SequenceDatabase
@@ -76,6 +77,8 @@ async def test_fetch_sequence_happy_path(
     assert body["accession"] == NCBI_TEST_ACCESSION
     assert body["sequence"] == NCBI_TEST_SEQUENCE
     assert body["source_database"] == "ncbi"
+    # Compact provider metadata is NOT filtered out of the record response.
+    assert body["metadata"] == {"ncbi_esummary": NCBI_TEST_ESUMMARY_ENTRY}
 
 
 async def test_fetch_sequence_unknown_accession_returns_404(
@@ -165,6 +168,31 @@ async def test_fetch_sequence_ena_happy_path(
     assert body["sequence"] == ENA_TEST_SEQUENCE
     assert body["description"] == ENA_TEST_DESCRIPTION
     assert body["source_database"] == "ena"
+
+
+async def test_fetch_sequence_ena_metadata_excludes_the_raw_payload(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+    ena_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """The oversized ENA payloads stay out of the plain fetch response.
+
+    They remain on the domain record for export provenance (see
+    ``test_exports.py``); only this compact projection drops them.
+    """
+    async with _app_client(
+        ncbi_happy_path_handler, ena_handler=ena_happy_path_handler
+    ) as client:
+        response = await client.get(
+            f"/api/databases/ena/sequences/{ENA_TEST_ACCESSION}"
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert "ena_fasta_raw" not in body["metadata"]
+    assert "ena_request_url" not in body["metadata"]
+    assert body["metadata"] == {}
+    # The sequence itself is still present, exactly once.
+    assert body["sequence"] == ENA_TEST_SEQUENCE
+    assert body["description"] == ENA_TEST_DESCRIPTION
 
 
 async def test_fetch_sequence_ena_unknown_accession_returns_404(

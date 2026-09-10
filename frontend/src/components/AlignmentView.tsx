@@ -2,7 +2,10 @@ import { useState, type FormEvent, type ReactNode } from "react";
 
 import {
   alignSequences,
+  alignmentJsonExportUrl,
+  alignmentTextExportUrl,
   errorMessage,
+  type AlignParams,
   type AlignmentMode,
   type AlignmentResponse,
 } from "../api/client";
@@ -90,9 +93,28 @@ function renderColumns(
 }
 
 /** Score/metrics summary plus the colour-coded alignment rows. */
-function AlignmentResultPanel({ result }: { result: AlignmentResponse }) {
+function AlignmentResultPanel({
+  result,
+  database,
+}: {
+  result: AlignmentResponse;
+  database: string;
+}) {
   const counts = countColumns(result.aligned_a, result.aligned_b);
   const limit = Math.min(counts.columns, MAX_RENDERED_COLUMNS);
+  // Rebuilt from the response, not from the form state, so a download always
+  // reproduces the alignment on screen. `mode` is `string` in the schema
+  // mirror; the API constrains it to "global" | "local" server-side.
+  const exportParams: AlignParams = {
+    accessionA: result.accession_a,
+    accessionB: result.accession_b,
+    database,
+    mode: result.mode as AlignmentMode,
+    match_score: result.match_score,
+    mismatch_score: result.mismatch_score,
+    open_gap_score: result.open_gap_score,
+    extend_gap_score: result.extend_gap_score,
+  };
 
   return (
     <>
@@ -172,6 +194,22 @@ function AlignmentResultPanel({ result }: { result: AlignmentResponse }) {
           Showing the first {limit} of {counts.columns} columns.
         </p>
       ) : null}
+      <p className="export-links">
+        <a
+          data-testid="align-export-json"
+          href={alignmentJsonExportUrl(exportParams)}
+          download
+        >
+          Download JSON
+        </a>
+        <a
+          data-testid="align-export-text"
+          href={alignmentTextExportUrl(exportParams)}
+          download
+        >
+          Download text
+        </a>
+      </p>
     </>
   );
 }
@@ -324,7 +362,7 @@ export function AlignmentView({
         </p>
       ) : null}
 
-      {result ? <AlignmentResultPanel result={result} /> : null}
+      {result ? <AlignmentResultPanel result={result} database={database} /> : null}
     </section>
   );
 }

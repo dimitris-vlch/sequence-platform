@@ -42,14 +42,13 @@ async def _fetch_record(
     return await client.fetch(accession)
 
 
-@router.get("/{accession}/statistics", response_model=SequenceStatisticsResponse)
-async def sequence_statistics(
-    request: Request,
-    accession: str,
-    database: str = Query(..., description="Provider name, e.g. 'ncbi'"),
-) -> SequenceStatisticsResponse:
-    """Deterministic statistics for one fetched record (Stage 4)."""
-    record = await _fetch_record(request, accession=accession, database=database)
+def statistics_response(record: SequenceRecord) -> SequenceStatisticsResponse:
+    """Build the Stage 4 statistics schema for a fetched record.
+
+    Shared with the Stage 9 export routes so an exported document and the
+    ``/api/sequences/{accession}/statistics`` response are the same shape by
+    construction rather than by duplication.
+    """
     return SequenceStatisticsResponse(
         accession=record.accession,
         seq_type=record.seq_type.value,
@@ -61,6 +60,41 @@ async def sequence_statistics(
         n_run_count=statistics.n_run_count(record),
         longest_n_run=statistics.longest_n_run(record),
     )
+
+
+def quality_response(
+    record: SequenceRecord,
+    *,
+    min_length: int,
+    max_ambiguous_fraction: float,
+    max_n_run: int,
+) -> QualityReportResponse:
+    """Build the Stage 4 QC schema for a record and the thresholds applied."""
+    report = quality_control.quality_report(
+        record,
+        min_length=min_length,
+        max_ambiguous_fraction=max_ambiguous_fraction,
+        max_n_run=max_n_run,
+    )
+    return QualityReportResponse(
+        accession=record.accession,
+        passed=report.passed,
+        issues=report.issues,
+        min_length=min_length,
+        max_ambiguous_fraction=max_ambiguous_fraction,
+        max_n_run=max_n_run,
+    )
+
+
+@router.get("/{accession}/statistics", response_model=SequenceStatisticsResponse)
+async def sequence_statistics(
+    request: Request,
+    accession: str,
+    database: str = Query(..., description="Provider name, e.g. 'ncbi'"),
+) -> SequenceStatisticsResponse:
+    """Deterministic statistics for one fetched record (Stage 4)."""
+    record = await _fetch_record(request, accession=accession, database=database)
+    return statistics_response(record)
 
 
 @router.get("/{accession}/quality", response_model=QualityReportResponse)
@@ -80,16 +114,8 @@ async def sequence_quality(
 ) -> QualityReportResponse:
     """Threshold-based QC report for one fetched record (Stage 4)."""
     record = await _fetch_record(request, accession=accession, database=database)
-    report = quality_control.quality_report(
+    return quality_response(
         record,
-        min_length=min_length,
-        max_ambiguous_fraction=max_ambiguous_fraction,
-        max_n_run=max_n_run,
-    )
-    return QualityReportResponse(
-        accession=record.accession,
-        passed=report.passed,
-        issues=report.issues,
         min_length=min_length,
         max_ambiguous_fraction=max_ambiguous_fraction,
         max_n_run=max_n_run,

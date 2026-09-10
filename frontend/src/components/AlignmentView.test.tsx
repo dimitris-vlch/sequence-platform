@@ -117,4 +117,24 @@ describe("AlignmentView", () => {
       "unknown accession",
     );
   });
+
+  it("offers JSON and text exports of the computed alignment", async () => {
+    installFetchMock(ROUTES);
+    render(<AlignmentView />);
+    await userEvent.type(screen.getByLabelText(/Accession A/), "NM_000001.1");
+    await userEvent.click(screen.getByRole("button", { name: "Align" }));
+
+    const jsonHref =
+      (await screen.findByTestId("align-export-json")).getAttribute("href") ??
+      "";
+    expect(jsonHref).toContain("/api/export/align/json?");
+    expect(jsonHref).toContain("accession_a=NM_000001.1");
+    expect(jsonHref).toContain("accession_b=NM_000002.1");
+    expect(jsonHref).toContain("mode=global");
+
+    const textHref =
+      screen.getByTestId("align-export-text").getAttribute("href") ?? "";
+    expect(textHref).toContain("/api/export/align/text?");
+    expect(textHref).toContain("mode=global");
+  });
 });

@@ -91,4 +91,18 @@ describe("SequenceDetail", () => {
     expect(rows).toHaveTextContent("Longest N-run: 0 bases / threshold 10 bases");
     expect(rows).toHaveTextContent("12% of threshold");
   });
+
+  it("offers FASTA and JSON export downloads for the loaded record", async () => {
+    installFetchMock(DETAIL_ROUTES);
+    render(<SequenceDetail database="ncbi" accession="NM_000001.1" />);
+    await screen.findByTestId("sequence-text");
+    expect(screen.getByTestId("export-fasta")).toHaveAttribute(
+      "href",
+      "/api/export/sequence/NM_000001.1/fasta?database=ncbi",
+    );
+    expect(screen.getByTestId("export-json")).toHaveAttribute(
+      "href",
+      "/api/export/sequence/NM_000001.1/json?database=ncbi",
+    );
+  });
 });

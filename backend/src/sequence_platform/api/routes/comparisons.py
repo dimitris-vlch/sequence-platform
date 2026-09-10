@@ -37,6 +37,29 @@ def _get_client(request: Request, name: str | None) -> SequenceDatabase:
     return client
 
 
+def comparison_response(
+    record_a: SequenceRecord, record_b: SequenceRecord, *, k: int
+) -> ComparisonResponse:
+    """Build the Stage 5 comparison schema for two fetched records.
+
+    Shared with the Stage 9 export routes, so an exported comparison and the
+    ``/api/compare`` response can never differ.
+    """
+    report = compare(record_a, record_b, k=k)
+    return ComparisonResponse(
+        accession_a=record_a.accession,
+        accession_b=record_b.accession,
+        length_a=report.length_a,
+        length_b=report.length_b,
+        hamming_distance=report.hamming_distance,
+        percent_identity=report.percent_identity,
+        levenshtein_distance=report.levenshtein_distance,
+        normalized_edit_similarity=report.normalized_edit_similarity,
+        jaccard_kmer_similarity=report.jaccard_kmer_similarity,
+        k=k,
+    )
+
+
 @router.get("", response_model=ComparisonResponse)
 async def compare_sequences(
     request: Request,
@@ -63,19 +86,7 @@ async def compare_sequences(
     else:
         record_b = record_a
 
-    report = compare(record_a, record_b, k=k)
-    return ComparisonResponse(
-        accession_a=record_a.accession,
-        accession_b=record_b.accession,
-        length_a=report.length_a,
-        length_b=report.length_b,
-        hamming_distance=report.hamming_distance,
-        percent_identity=report.percent_identity,
-        levenshtein_distance=report.levenshtein_distance,
-        normalized_edit_similarity=report.normalized_edit_similarity,
-        jaccard_kmer_similarity=report.jaccard_kmer_similarity,
-        k=k,
-    )
+    return comparison_response(record_a, record_b, k=k)
 
 
 async def _fetch_record(

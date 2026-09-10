@@ -14,13 +14,18 @@ import {
 } from "../test/apiMock";
 import {
   alignSequences,
+  alignmentJsonExportUrl,
+  alignmentTextExportUrl,
   compareSequences,
+  comparisonJsonExportUrl,
   fetchDatabases,
   fetchQuality,
   fetchSequence,
   fetchStatistics,
   httpErrorDetail,
   searchSequences,
+  sequenceFastaExportUrl,
+  sequenceJsonExportUrl,
 } from "./client";
 
 /** Read the URL the stubbed fetch was called with, for call `index`. */
@@ -124,5 +129,42 @@ describe("api client", () => {
   it("falls back to the status code when the body carries no detail", () => {
     expect(httpErrorDetail(500, "")).toBe("HTTP 500");
     expect(httpErrorDetail(500, "not json")).toBe("not json");
+  });
+
+  it("builds export download URLs that mirror their routes", () => {
+    expect(sequenceFastaExportUrl("ncbi", "NM_000001.1")).toBe(
+      "/api/export/sequence/NM_000001.1/fasta?database=ncbi",
+    );
+    expect(sequenceJsonExportUrl("ena", "AB000001.1")).toBe(
+      "/api/export/sequence/AB000001.1/json?database=ena",
+    );
+    expect(
+      comparisonJsonExportUrl({
+        accessionA: "NM_000001.1",
+        accessionB: "NM_000002.1",
+        database: "ncbi",
+        k: 6,
+      }),
+    ).toBe(
+      "/api/export/compare/json?accession_a=NM_000001.1&accession_b=NM_000002.1&database=ncbi&k=6",
+    );
+  });
+
+  it("builds alignment export URLs for both formats", () => {
+    const params = {
+      accessionA: "NM_000001.1",
+      database: "ncbi",
+      mode: "local" as const,
+      match_score: 2,
+    };
+    const jsonUrl = alignmentJsonExportUrl(params);
+    expect(jsonUrl).toContain("/api/export/align/json?");
+    expect(jsonUrl).toContain("accession_a=NM_000001.1");
+    expect(jsonUrl).toContain("mode=local");
+    expect(jsonUrl).toContain("match_score=2");
+    const textUrl = alignmentTextExportUrl(params);
+    expect(textUrl).toContain("/api/export/align/text?");
+    // Unset parameters are omitted, so the server defaults apply.
+    expect(textUrl).not.toContain("mismatch_score");
   });
 });

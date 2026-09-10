@@ -63,7 +63,13 @@ async def test_fetch_happy_path(
     assert record.description == ENA_TEST_DESCRIPTION
     assert record.seq_type == SeqType.DNA
     assert record.source_database == "ena"
-    assert record.metadata == {}
+    # Stage 9: the raw FASTA text and the request URL are retained for
+    # provenance — ENA's counterpart of NCBI's `ncbi_esummary` entry.
+    assert set(record.metadata) == {"ena_fasta_raw", "ena_request_url"}
+    assert record.metadata["ena_fasta_raw"] == ENA_TEST_FASTA
+    assert str(record.metadata["ena_request_url"]).endswith(
+        f"/fasta/{ENA_TEST_ACCESSION}"
+    )
     await client.close()
 
 

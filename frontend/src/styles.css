@@ -218,3 +218,23 @@ body {
   border-radius: 3px;
   padding: 0.05em 0.35em;
 }
+
+.app .export-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+}
+
+.app .export-links a {
+  background: #1d2542;
+  border: 1px solid #2c3560;
+  border-radius: 8px;
+  color: #d7ddf0;
+  padding: 0.35rem 0.7rem;
+  text-decoration: none;
+}
+
+.app .export-links a:hover {
+  background: #28325a;
+}

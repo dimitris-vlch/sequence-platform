@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 
 import {
   compareSequences,
+  comparisonJsonExportUrl,
   errorMessage,
   type ComparisonResponse,
 } from "../api/client";
@@ -120,7 +121,8 @@ export function ComparisonView({
       ) : null}
 
       {result ? (
-        <dl className="kv" data-testid="compare-result">
+        <>
+          <dl className="kv" data-testid="compare-result">
           <div>
             <dt>Accessions</dt>
             <dd>
@@ -158,6 +160,21 @@ export function ComparisonView({
             <dd>{result.jaccard_kmer_similarity}</dd>
           </div>
         </dl>
+        <p className="export-links">
+          <a
+            data-testid="compare-export-json"
+            href={comparisonJsonExportUrl({
+              accessionA: result.accession_a,
+              accessionB: result.accession_b,
+              database,
+              k: result.k,
+            })}
+            download
+          >
+            Download JSON
+          </a>
+        </p>
+        </>
       ) : null}
     </section>
   );

@@ -15,6 +15,8 @@ import {
   fetchQuality,
   fetchSequence,
   fetchStatistics,
+  sequenceFastaExportUrl,
+  sequenceJsonExportUrl,
   type QualityReportResponse,
   type SequenceRecordOut,
   type SequenceStatisticsResponse,
@@ -290,6 +292,23 @@ export function SequenceDetail({ database, accession }: SequenceDetailProps) {
           <dd>{record.source_database || "—"}</dd>
         </div>
       </dl>
+
+      <p className="export-links">
+        <a
+          data-testid="export-fasta"
+          href={sequenceFastaExportUrl(database, record.accession)}
+          download
+        >
+          Download FASTA
+        </a>
+        <a
+          data-testid="export-json"
+          href={sequenceJsonExportUrl(database, record.accession)}
+          download
+        >
+          Download JSON
+        </a>
+      </p>
 
       <h3>Sequence</h3>
       <pre className="sequence" data-testid="sequence-text">

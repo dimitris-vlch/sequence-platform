@@ -141,3 +141,48 @@ export interface QualityThresholds {
   max_ambiguous_fraction?: number;
   max_n_run?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Export envelopes (Stage 9). Every JSON export carries a provenance block
+// (§4): which archive each input came from, its accession, length, MD5 digest,
+// the raw provider payload where the client retained one, and the analysis
+// parameters the exported result was computed with.
+// ---------------------------------------------------------------------------
+
+/** Provenance for one input record of an export. */
+export interface ExportSource {
+  accession: string;
+  source_database: string;
+  length: number;
+  md5: string;
+  metadata: Record<string, unknown>;
+}
+
+/** The provenance block carried by every JSON export. */
+export interface ExportProvenance {
+  generated_at: string;
+  application: string;
+  version: string;
+  sources: ExportSource[];
+  parameters: Record<string, unknown>;
+}
+
+/** Response body for `GET /api/export/sequence/{accession}/json`. */
+export interface SequenceExportResponse {
+  provenance: ExportProvenance;
+  record: SequenceRecordOut;
+  statistics: SequenceStatisticsResponse;
+  quality: QualityReportResponse;
+}
+
+/** Response body for `GET /api/export/compare/json`. */
+export interface ComparisonExportResponse {
+  provenance: ExportProvenance;
+  comparison: ComparisonResponse;
+}
+
+/** Response body for `GET /api/export/align/json`. */
+export interface AlignmentExportResponse {
+  provenance: ExportProvenance;
+  alignment: AlignmentResponse;
+}

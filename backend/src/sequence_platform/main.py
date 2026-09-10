@@ -19,6 +19,7 @@ from .api.routes.alignment import router as alignment_router
 from .api.routes.analysis import router as analysis_router
 from .api.routes.comparisons import router as comparisons_router
 from .api.routes.databases import router as databases_router
+from .api.routes.exports import router as exports_router
 from .api.routes.health import router as health_router
 from .database.base import SequenceDatabase
 from .database.exceptions import (
@@ -134,6 +135,7 @@ def create_app(
     application.include_router(analysis_router, prefix="/api")
     application.include_router(comparisons_router, prefix="/api")
     application.include_router(alignment_router, prefix="/api")
+    application.include_router(exports_router, prefix="/api")
     return application
 
 
