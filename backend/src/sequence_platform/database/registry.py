@@ -8,8 +8,8 @@ Two lists live here, and they are deliberately different:
 - ``SUPPORTED_DATABASES`` — every archive the platform is designed to
   support, in display order. Advertised by the API even when no client is
   implemented for it yet (surfaced with ``available: false``).
-- ``_FACTORIES`` — the subset with a working client. Currently just NCBI
-  (Stage 3); ENA joins in Stage 7.
+- ``_FACTORIES`` — the subset with a working client. Currently NCBI
+  (Stage 3) and ENA (Stage 7).
 
 ``get_database`` constructs clients lazily: one fresh client per call,
 configured from the current environment (``Settings``), so callers own the
@@ -41,9 +41,25 @@ def _ncbi_factory(settings: Settings) -> SequenceDatabase:
     return NCBISequenceDatabase(settings=settings)
 
 
+def _ena_factory(settings: Settings) -> SequenceDatabase:
+    """Construct the ENA client from ``settings``.
+
+    ``settings`` is accepted for type consistency with the
+    ``Callable[[Settings], SequenceDatabase]`` factory signature and is
+    deliberately unused: ENA requires no email/API-key courtesy parameters,
+    so there is nothing in ``Settings`` for it to read.
+    """
+    # Deferred for the same reason as the NCBI factory: importing the
+    # submodule directly bypasses the package's ``__init__``.
+    from sequence_platform.database.ena.client import ENASequenceDatabase
+
+    return ENASequenceDatabase()
+
+
 # Provider name -> one-argument (Settings) client factory.
 _FACTORIES: dict[str, Callable[[Settings], SequenceDatabase]] = {
     "ncbi": _ncbi_factory,
+    "ena": _ena_factory,
 }
 
 
@@ -63,7 +79,8 @@ def get_database(name: str, settings: Settings | None = None) -> SequenceDatabas
 
     Raises:
         UnknownDatabaseError: If no client is registered under ``name``
-            (e.g. ``"ena"`` until Stage 7); the API layer maps this to 404.
+            (e.g. an archive advertised but not yet implemented); the API
+            layer maps this to 404.
     """
     factory = _FACTORIES.get(name)
     if factory is None:

@@ -218,3 +218,69 @@ they are made (Stage 2 onward).
   local-subregion cases; empty-input and case-insensitivity edge cases);
   route tests in `tests/api/test_alignment.py` via `ASGITransport` with a
   mocked client (no real external request, §2).
+
+### Stage 7 (ENA client, registry wiring)
+
+- **ENA client** (`database/ena/client.py::ENASequenceDatabase`,
+  `name="ena"`): the second real provider, built on `httpx.AsyncClient` only
+  (per §1) and mirroring `NCBISequenceDatabase` structurally — same retry
+  policy, same exception mapping, same provenance stamping. It has no
+  `email`/`api_key` parameters: the ENA browser API requires no courtesy
+  parameter.
+  - Endpoints (fixed in Stage 7; never probed live — §2):
+    `GET /fasta/{accession}` returns the record directly as plain FASTA text
+    (no JSON envelope), and
+    `GET /search?query&result=sequence&format=json&limit` returns a JSON
+    array of hit objects carrying at least `accession` and `description`.
+    Unlike NCBI's esearch there is no count field to gate on: an empty result
+    is HTTP 200 with `[]`, which is a normal, non-error outcome.
+  - Fetch flow: one `GET /fasta/{accession}` →
+    `parse_fasta(..., infer_seq_type=True)`; exactly one parsed record is
+    accepted and `source_database="ena"` is stamped (the Stage 2/3 provenance
+    pattern). The parsed FASTA is the source of truth for sequence content,
+    so no second metadata call is made and fetch stays a single request.
+  - Retries (§2): 5xx / timeouts / network errors → up to `max_retries` (3)
+    with exponential backoff (base 1 s, cap 30 s) × jitter (0.5–1.5) →
+    `UpstreamUnavailableError` when exhausted; 429 → retried with
+    `min(Retry-After, backoff_cap)` → `RateLimitedError` when exhausted; any
+    other 4xx is *not* retried and maps immediately to
+    `UpstreamUnavailableError`. HTTP 404 is unambiguous for ENA (unlike
+    NCBI's quirk of answering unknown accessions with HTTP 400) and maps
+    straight to `AccessionNotFoundError`, with no retry.
+  - `search` maps each hit to `SequenceSummary(accession,
+    title=<description>, length=None, source_database="ena", metadata=<raw
+    hit>)`: ENA's hit objects carry no length, and fetching each hit's FASTA
+    purely to fill one would defeat a lightweight search. The raw hit is
+    preserved for provenance fidelity.
+  - Constructor parameters: `base_url` (default
+    `https://www.ebi.ac.uk/ena/browser/api`), `timeout` (30 s),
+    `max_retries` (3), `backoff_base`/`backoff_cap`, and an optional
+    `transport` for tests (satisfies §2's mock-transport rule without adding
+    a dependency).
+- **Registry** (`database/registry.py`): `ena` becomes the second entry in
+  `_FACTORIES`, registered through the same `Callable[[Settings],
+  SequenceDatabase]` factory-dict pattern. The ENA factory accepts `Settings`
+  for type consistency and ignores it (nothing in `Settings` applies to ENA),
+  and the client import stays deferred inside the factory body as it is for
+  NCBI. `registered_names()` now yields `("ncbi", "ena")`, so
+  `create_app`'s lifespan builds and closes an ENA client too; `config.py`
+  is unchanged.
+- **Routes** (`api/routes/databases.py`): no change needed — the routes
+  resolve whatever is registered, so `GET /api/databases` now reports `ena`
+  with `available: true` and the ENA fetch/search routes are live.
+- **Tests**: synthetic ENA fixtures (a canned FASTA document and a canned
+  search JSON array; no real data) in `tests/conftest.py`, served via
+  `httpx.MockTransport`. Client tests in `tests/database/test_ena_client.py`
+  cover the 404 → `AccessionNotFoundError` path, malformed/empty FASTA → 422,
+  malformed search payloads, empty search, retry-then-succeed, exhausted 5xx
+  and network errors → `UpstreamUnavailableError`, non-429 4xx not retried,
+  and 429 → `RateLimitedError`. Route tests in `tests/api/test_databases.py`
+  inject both mocked clients and drive the ENA routes via `ASGITransport`. No
+  committed test performs a real external request (§2).
+- **Flagged, not resolved unilaterally**: a 200 response with an empty body
+  (zero parsed records) maps to `MalformedPayloadError`, because Stage 7
+  fixes HTTP 404 as *the* ENA not-found signal and "exactly one record" as
+  the acceptance rule; if a real ENA deployment instead answered some
+  missing accessions with an empty 200, that mapping would need revisiting.
+  Likewise, ENA search fields beyond `accession`/`description` are treated as
+  optional (`None`/`""`) and never invented.
