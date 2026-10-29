@@ -68,9 +68,26 @@ export function httpErrorDetail(status: number, body: string): string {
     return `HTTP ${status}`;
   }
   try {
-    const parsed = JSON.parse(body) as { detail?: string };
-    if (parsed.detail !== undefined) {
-      return parsed.detail;
+    const parsed = JSON.parse(body) as { detail?: unknown };
+    const { detail } = parsed;
+    if (typeof detail === "string") {
+      return detail;
+    }
+    // FastAPI's own request-validation 422s carry a list of
+    // `{loc, msg, type}` objects; returning that list as-is rendered as
+    // "[object Object]" in the UI.
+    if (Array.isArray(detail)) {
+      const messages = detail.map((item: unknown) => {
+        if (item !== null && typeof item === "object" && "msg" in item) {
+          const { loc, msg } = item as { loc?: unknown; msg: unknown };
+          const field = Array.isArray(loc) ? loc[loc.length - 1] : undefined;
+          return field === undefined ? String(msg) : `${String(field)}: ${String(msg)}`;
+        }
+        return String(item);
+      });
+      if (messages.length > 0) {
+        return messages.join("; ");
+      }
     }
   } catch {
     // Not JSON - fall back to the raw body.

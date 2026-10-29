@@ -13,7 +13,14 @@ export interface SequenceSearchProps {
 export function SequenceSearch({ database, onSelect }: SequenceSearchProps) {
   const [query, setQuery] = useState("");
   const [maxResults, setMaxResults] = useState(20);
-  const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [result, setResult] = useState<{
+    database: string;
+    response: SearchResponse;
+  } | null>(null);
+  // Results belong to the database they were searched in. After the user
+  // switches databases, showing them would make a click open the accession
+  // in the *new* database (wrong record or a 404), so they are hidden.
+  const response = result !== null && result.database === database ? result.response : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,9 +34,12 @@ export function SequenceSearch({ database, onSelect }: SequenceSearchProps) {
     setLoading(true);
     setError(null);
     try {
-      setResponse(await searchSequences(database, trimmed, maxResults));
+      setResult({
+        database,
+        response: await searchSequences(database, trimmed, maxResults),
+      });
     } catch (err: unknown) {
-      setResponse(null);
+      setResult(null);
       setError(errorMessage(err));
     } finally {
       setLoading(false);
@@ -62,7 +72,11 @@ export function SequenceSearch({ database, onSelect }: SequenceSearchProps) {
             value={maxResults}
             onChange={(event) => {
               const parsed = Number.parseInt(event.target.value, 10);
-              setMaxResults(Number.isNaN(parsed) ? 20 : parsed);
+              // Clamp to the backend's 1..100 bound so an out-of-range value
+              // never turns into a validation error.
+              setMaxResults(
+                Number.isNaN(parsed) ? 20 : Math.min(100, Math.max(1, parsed)),
+              );
             }}
           />
         </div>

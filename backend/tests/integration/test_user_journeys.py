@@ -56,11 +56,13 @@ def _ncbi_handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     params = request.url.params
     if path.endswith("esearch.fcgi"):
-        term = params.get("term")
+        term = params.get("term") or ""
+        # fetch() restricts its lookup to the accession field ("<acc>[accn]").
+        accession = term.removesuffix("[accn]")
         if term == SEARCH_TERM:
             uids = ["111"]
-        elif term in _UID_BY_ACCESSION:
-            uids = [_UID_BY_ACCESSION[term]]
+        elif term.endswith("[accn]") and accession in _UID_BY_ACCESSION:
+            uids = [_UID_BY_ACCESSION[accession]]
         else:
             uids = []
         return httpx.Response(

@@ -235,3 +235,19 @@ async def test_non_429_4xx_is_not_retried() -> None:
         await client.fetch(ENA_TEST_ACCESSION)
     assert calls == 1  # never retried
     await client.close()
+
+
+async def test_fetch_percent_encodes_accession_in_path() -> None:
+    """User input must stay inside the /fasta/{accession} path segment."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.raw_path.decode())
+        return httpx.Response(404)
+
+    client = _client(handler)
+    with pytest.raises(AccessionNotFoundError):
+        await client.fetch("../search?query=x#y")
+    assert len(seen) == 1
+    assert seen[0].endswith("/fasta/..%2Fsearch%3Fquery%3Dx%23y")
+    await client.close()

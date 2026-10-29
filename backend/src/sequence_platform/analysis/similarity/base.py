@@ -66,10 +66,16 @@ def normalized_edit_similarity(record_a: SequenceLike, record_b: SequenceLike) -
     """
     seq_a = _upper(record_a)
     seq_b = _upper(record_b)
+    if not seq_a and not seq_b:
+        return 100.0
+    return _edit_similarity(levenshtein_distance(seq_a, seq_b), seq_a, seq_b)
+
+
+def _edit_similarity(distance: int, seq_a: str, seq_b: str) -> float:
+    """Normalised edit similarity from an already computed distance."""
     max_len = max(len(seq_a), len(seq_b))
     if max_len == 0:
         return 100.0
-    distance = levenshtein_distance(seq_a, seq_b)
     similarity = 100.0 * (1.0 - distance / max_len)
     return round(min(100.0, max(0.0, similarity)), 2)
 
@@ -137,13 +143,16 @@ def compare(
     seq_b = _upper(record_b)
     length_a, length_b = len(seq_a), len(seq_b)
     equal_length = length_a == length_b
+    # The quadratic edit distance is computed once and reused for the
+    # normalised similarity (it was previously computed twice per compare).
+    distance = levenshtein_distance(seq_a, seq_b)
 
     return ComparisonReport(
         length_a=length_a,
         length_b=length_b,
         hamming_distance=hamming_distance(seq_a, seq_b) if equal_length else None,
         percent_identity=percent_identity(seq_a, seq_b) if equal_length else None,
-        levenshtein_distance=levenshtein_distance(seq_a, seq_b),
-        normalized_edit_similarity=normalized_edit_similarity(seq_a, seq_b),
+        levenshtein_distance=distance,
+        normalized_edit_similarity=_edit_similarity(distance, seq_a, seq_b),
         jaccard_kmer_similarity=jaccard_kmer_similarity(seq_a, seq_b, k=k),
     )

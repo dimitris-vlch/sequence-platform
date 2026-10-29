@@ -27,10 +27,16 @@ from sequence_platform.analysis.statistics.base import SequenceLike, _normalised
 from sequence_platform.models import SeqType
 
 __all__ = [
+    "MAX_LEVENSHTEIN_CELLS",
     "hamming_distance",
     "levenshtein_distance",
     "percent_identity",
 ]
+
+#: Upper bound on ``len(a) * len(b)`` for :func:`levenshtein_distance`
+#: (≈ two 3.1 kb sequences, ~1.5 s of pure-Python work). Larger inputs raise
+#: ``ValueError``, which the API maps to 422 instead of blocking the server.
+MAX_LEVENSHTEIN_CELLS = 10_000_000
 
 
 def _upper(record_or_sequence: SequenceLike) -> str:
@@ -131,27 +137,42 @@ def levenshtein_distance(record_a: SequenceLike, record_b: SequenceLike) -> int:
     int
         The minimum edit distance (unit costs for insert / delete / substitute).
 
+    Raises
+    ------
+    ValueError
+        If ``len(a) * len(b)`` exceeds :data:`MAX_LEVENSHTEIN_CELLS`. The
+        dynamic programme is pure Python and quadratic in time, so an
+        unbounded input (e.g. two whole chromosomes) would stall the server.
+
     Notes
     -----
-    Implemented directly with a full O(n·m) dynamic-programming table —
-    intentionally not optimised, and with no third-party dependency.
+    Classic O(n·m)-time dynamic programme with no third-party dependency.
+    Only two rows of the table are kept, so memory is O(min(n, m)) rather
+    than O(n·m); the result is identical to the full-table version.
     """
     seq_a = _upper(record_a)
     seq_b = _upper(record_b)
-    n, m = len(seq_a), len(seq_b)
+    cells = len(seq_a) * len(seq_b)
+    if cells > MAX_LEVENSHTEIN_CELLS:
+        raise ValueError(
+            f"sequences too long for edit distance ({len(seq_a)} x {len(seq_b)} "
+            f"= {cells} cells; limit {MAX_LEVENSHTEIN_CELLS})"
+        )
+    # Iterate over the longer sequence so the kept rows are the shorter one.
+    if len(seq_b) > len(seq_a):
+        seq_a, seq_b = seq_b, seq_a
+    m = len(seq_b)
 
-    # dp[i][j] = edit distance between seq_a[:i] and seq_b[:j].
-    # dp[i][0] == i (delete i characters); dp[0][j] == j (insert j).
-    dp = [[j for j in range(m + 1)]] + [[i] + [0] * m for i in range(1, n + 1)]
-
-    for i in range(1, n + 1):
-        a_char = seq_a[i - 1]
-        row = dp[i]
-        prev_row = dp[i - 1]
+    # prev[j] = edit distance between seq_a[:i-1] and seq_b[:j];
+    # row 0 is j (insert j characters).
+    prev = list(range(m + 1))
+    for i, a_char in enumerate(seq_a, start=1):
+        row = [i] + [0] * m
         for j in range(1, m + 1):
             if a_char == seq_b[j - 1]:
-                row[j] = prev_row[j - 1]
+                row[j] = prev[j - 1]
             else:
-                row[j] = 1 + min(prev_row[j], row[j - 1], prev_row[j - 1])
+                row[j] = 1 + min(prev[j], row[j - 1], prev[j - 1])
+        prev = row
 
-    return dp[n][m]
+    return prev[m]

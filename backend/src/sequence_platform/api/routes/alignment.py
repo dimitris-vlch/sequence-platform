@@ -9,6 +9,7 @@ lives in the pure ``analysis`` package; this route only wires HTTP to it.
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
+from fastapi.concurrency import run_in_threadpool
 
 from ...analysis.alignment import global_alignment, local_alignment
 from ...database.base import SequenceDatabase
@@ -125,7 +126,10 @@ async def align_sequences(
     else:
         record_b = record_a
 
-    return alignment_response(
+    # CPU-bound (quadratic dynamic programme): run it off the event loop so
+    # one alignment cannot stall every other request on this worker.
+    return await run_in_threadpool(
+        alignment_response,
         record_a,
         record_b,
         mode=mode,

@@ -193,3 +193,21 @@ async def test_efetch_multi_record_payload_raises_malformed_payload() -> None:
     with pytest.raises(MalformedPayloadError):
         await client.fetch(NCBI_TEST_ACCESSION)
     await client.close()
+
+
+async def test_fetch_restricts_esearch_to_accession_field(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """fetch() must not run a free-text esearch, which can resolve an
+    accession-like term to an unrelated record."""
+    terms: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("esearch.fcgi"):
+            terms.append(request.url.params.get("term"))
+        return ncbi_happy_path_handler(request)
+
+    client = _client(handler)
+    await client.fetch(NCBI_TEST_ACCESSION)
+    assert terms == [f"{NCBI_TEST_ACCESSION}[accn]"]
+    await client.close()

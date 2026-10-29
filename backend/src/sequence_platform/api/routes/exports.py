@@ -18,6 +18,7 @@ flag (§1 thin-API rule). Route names echo the endpoint they serialise
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
 from ...analysis import quality_control
 from ...models import SequenceRecord
@@ -132,7 +133,8 @@ async def _alignment_result(
         accession_b=accession_b,
         database=database or "ncbi",
     )
-    alignment = alignment_response(
+    alignment = await run_in_threadpool(
+        alignment_response,
         *records,
         mode=mode,
         match_score=match_score,
@@ -175,9 +177,10 @@ async def export_comparison_json(
     response.headers["Content-Disposition"] = content_disposition(
         safe_filename(f"{record_a.accession}-vs-{record_b.accession}", ".json")
     )
+    comparison = await run_in_threadpool(comparison_response, record_a, record_b, k=k)
     return ComparisonExportResponse(
         provenance=provenance([record_a, record_b], parameters={"k": k}),
-        comparison=comparison_response(record_a, record_b, k=k),
+        comparison=comparison,
     )
 
 

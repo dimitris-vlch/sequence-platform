@@ -275,7 +275,11 @@ class NCBISequenceDatabase(SequenceDatabase):
         params = {
             **self._common_params(),
             "db": self._db,
-            "term": accession,
+            # Restrict the match to the accession field. A bare term is a
+            # free-text query: "BRCA1" or a partial accession would resolve to
+            # whichever unrelated record ranks first, and fetch would silently
+            # return the wrong sequence under the requested accession.
+            "term": f"{accession}[accn]",
             "retmode": "json",
         }
         response = await self._request("esearch.fcgi", params)

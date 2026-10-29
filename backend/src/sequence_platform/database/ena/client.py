@@ -50,6 +50,7 @@ import asyncio
 import logging
 import random
 from typing import Any, ClassVar
+from urllib.parse import quote
 
 import httpx
 
@@ -138,7 +139,10 @@ class ENASequenceDatabase(SequenceDatabase):
             UpstreamUnavailableError / RateLimitedError: On exhausted
                 transient failures, per the module docstring.
         """
-        url = f"{self._base_url}/fasta/{accession}"
+        # Percent-encode the accession as a single path segment: it is user
+        # input, and an unescaped "/", "?" or "#" would otherwise reach a
+        # different ENA endpoint than /fasta/{accession}.
+        url = f"{self._base_url}/fasta/{quote(accession, safe='')}"
         response = await self._request("GET", url)
         try:
             records = parse_fasta(response.text, infer_seq_type=True)

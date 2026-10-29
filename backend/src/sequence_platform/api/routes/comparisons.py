@@ -10,6 +10,7 @@ pure ``analysis`` package; this route only wires HTTP to it.
 from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
+from fastapi.concurrency import run_in_threadpool
 
 from ...analysis.similarity import compare
 from ...database.base import SequenceDatabase
@@ -86,7 +87,9 @@ async def compare_sequences(
     else:
         record_b = record_a
 
-    return comparison_response(record_a, record_b, k=k)
+    # CPU-bound (quadratic edit distance): run it off the event loop so one
+    # comparison cannot stall every other request on this worker.
+    return await run_in_threadpool(comparison_response, record_a, record_b, k=k)
 
 
 async def _fetch_record(

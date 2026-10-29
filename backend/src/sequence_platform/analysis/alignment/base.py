@@ -33,10 +33,17 @@ from sequence_platform.analysis.statistics.base import SequenceLike, _normalised
 from sequence_platform.models import SeqType
 
 __all__ = [
+    "MAX_ALIGNMENT_CELLS",
     "AlignmentResult",
     "global_alignment",
     "local_alignment",
 ]
+
+#: Upper bound on ``len(a) * len(b)`` for one alignment (≈ two 10 kb
+#: sequences, a few seconds in Biopython's C aligner). The dynamic programme
+#: is quadratic in time and traceback memory, so larger inputs raise
+#: ``ValueError`` (mapped to 422) instead of exhausting the server.
+MAX_ALIGNMENT_CELLS = 100_000_000
 
 
 @dataclass(frozen=True)
@@ -87,6 +94,12 @@ def _run_alignment(
     if not seq_a or not seq_b:
         raise ValueError(
             f"Both sequences must be non-empty (got lengths {len(seq_a)} and {len(seq_b)})"
+        )
+    cells = len(seq_a) * len(seq_b)
+    if cells > MAX_ALIGNMENT_CELLS:
+        raise ValueError(
+            f"sequences too long for pairwise alignment ({len(seq_a)} x "
+            f"{len(seq_b)} = {cells} cells; limit {MAX_ALIGNMENT_CELLS})"
         )
 
     aligner = PairwiseAligner()

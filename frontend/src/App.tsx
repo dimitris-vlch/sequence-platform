@@ -90,7 +90,14 @@ export default function App() {
 
       {view === "search" ? (
         <>
-          <DatabaseSelector value={database} onChange={setDatabase} />
+          <DatabaseSelector
+            value={database}
+            onChange={(next) => {
+              // A selected accession belongs to the previous database.
+              setDatabase(next);
+              setSelectedAccession("");
+            }}
+          />
           <SequenceSearch database={database} onSelect={setSelectedAccession} />
           {selectedAccession ? (
             <SequenceDetail

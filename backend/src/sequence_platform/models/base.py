@@ -32,12 +32,11 @@ _UNAMBIGUOUS_BASES: dict[SeqType, frozenset[str]] = {
     SeqType.RNA: frozenset("ACGU"),
 }
 
-#: IUPAC ambiguity codes accepted per alphabet. ``N`` matches any base;
-#: the remaining codes are the standard IUPAC nucleotide ambiguity codes.
-_AMBIGUITY_CODES: dict[SeqType, frozenset[str]] = {
-    SeqType.DNA: frozenset("ACGTRYSWKMBDN"),
-    SeqType.RNA: frozenset("ACGURYSWKMBDN"),
-}
+#: IUPAC nucleotide ambiguity codes (identical for DNA and RNA). Must match
+#: ``sequence_platform.validation.base._IUPAC_AMBIGUITY_CODES``; ``H`` and
+#: ``V`` were previously missing here, so ``valid_bases`` disagreed with the
+#: validator about which sequences are legal.
+_AMBIGUITY_CODES: frozenset[str] = frozenset("RYSWKMBDHVN")
 
 
 @dataclass
@@ -78,7 +77,9 @@ class SequenceRecord:
         # Normalise: upper-case, strip whitespace. Sequences are always
         # stored in canonical form so downstream code never has to worry
         # about case.
-        self.sequence = self.sequence.upper().replace("\n", "").replace(" ", "")
+        # ``"".join(s.split())`` drops every kind of whitespace (CR from CRLF
+        # input, tabs), not only LF and spaces.
+        self.sequence = "".join(self.sequence.upper().split())
         if not self.title:
             self.title = self.accession
 
@@ -90,7 +91,7 @@ class SequenceRecord:
     @property
     def valid_bases(self) -> frozenset[str]:
         """Bases accepted for this sequence type, including ambiguity."""
-        return _UNAMBIGUOUS_BASES[self.seq_type] | _AMBIGUITY_CODES[self.seq_type]
+        return _UNAMBIGUOUS_BASES[self.seq_type] | _AMBIGUITY_CODES
 
     def to_fasta(self, wrap: int = 60) -> str:
         """Render this record as a single-record FASTA string.
