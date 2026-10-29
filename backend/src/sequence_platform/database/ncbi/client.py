@@ -42,6 +42,7 @@ confirmed to exist by the preceding ``esearch`` call.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import random
 from typing import Any, ClassVar
@@ -86,6 +87,8 @@ class NCBISequenceDatabase(SequenceDatabase):
         backoff_base: float = 1.0,
         backoff_cap: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        min_interval: float | None = None,
+        cache_ttl: float = 300.0,
     ) -> None:
         """Build the client, optionally from ``settings``.
 
@@ -108,6 +111,18 @@ class NCBISequenceDatabase(SequenceDatabase):
                 cap a hostile/huge ``Retry-After`` header.
             transport: Optional ``httpx`` transport, used by tests to
                 replace the network with a scripted mock transport.
+            min_interval: Minimum seconds between the starts of two
+                E-utilities requests made by this client. NCBI allows 3
+                requests/second without an API key and 10 with one; one
+                record fetch is 3 requests, and the UI's detail view asks
+                for a record, its statistics and its QC report at once, so
+                without spacing a single click bursts 9 requests and NCBI
+                answers 429. ``None`` (default) picks 0.34 s keyless / 0.11 s
+                with a key against the real network, and 0 when a test
+                ``transport`` is injected.
+            cache_ttl: Seconds a fetched record is reused for the same
+                accession (concurrent fetches of one accession also share
+                one upstream lookup). ``0`` disables the cache.
         """
         self._email = (
             email if email is not None else (settings.ncbi_email if settings else None)
@@ -124,9 +139,36 @@ class NCBISequenceDatabase(SequenceDatabase):
         self._client = httpx.AsyncClient(
             base_url=_EUTILS_BASE, timeout=timeout, transport=transport
         )
+        if min_interval is None:
+            if transport is not None:
+                min_interval = 0.0
+            else:
+                min_interval = 0.11 if self._api_key else 0.34
+        self._min_interval = min_interval
+        self._throttle_lock = asyncio.Lock()
+        self._next_request_at = 0.0
+        self._cache_ttl = cache_ttl
+        #: accession -> (expiry on the loop clock, shared fetch task)
+        self._fetch_cache: dict[str, tuple[float, asyncio.Task[SequenceRecord]]] = {}
+
+    async def _throttle(self) -> None:
+        """Wait until this client may start its next request (NCBI rate cap)."""
+        if self._min_interval <= 0:
+            return
+        loop = asyncio.get_running_loop()
+        async with self._throttle_lock:
+            now = loop.time()
+            wait = self._next_request_at - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = loop.time()
+            self._next_request_at = now + self._min_interval
 
     async def close(self) -> None:
         """Close the underlying ``httpx`` connection pool."""
+        for _, task in self._fetch_cache.values():
+            task.cancel()
+        self._fetch_cache.clear()
         await self._client.aclose()
 
     def _common_params(self) -> dict[str, str]:
@@ -149,6 +191,7 @@ class NCBISequenceDatabase(SequenceDatabase):
         """
         attempt = 0
         while True:
+            await self._throttle()
             try:
                 response = await self._client.get(path, params=params)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -331,6 +374,33 @@ class NCBISequenceDatabase(SequenceDatabase):
             UpstreamUnavailableError: NCBI is down or rejected the request
                 after every retry.
         """
+        if self._cache_ttl <= 0:
+            return await self._fetch_uncached(accession)
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        for key, (expires, _) in list(self._fetch_cache.items()):
+            if expires <= now:
+                del self._fetch_cache[key]
+        entry = self._fetch_cache.get(accession)
+        if entry is None:
+            task = asyncio.ensure_future(self._fetch_uncached(accession))
+            self._fetch_cache[accession] = (now + self._cache_ttl, task)
+        else:
+            task = entry[1]
+        try:
+            # shield: one cancelled caller must not cancel the shared lookup.
+            record = await asyncio.shield(task)
+        except Exception:
+            # Failures are never cached; the next request tries again.
+            if self._fetch_cache.get(accession, (0.0, None))[1] is task:
+                del self._fetch_cache[accession]
+            raise
+        # Each caller gets its own copy, so one route mutating its record can
+        # never leak into another request's response.
+        return copy.deepcopy(record)
+
+    async def _fetch_uncached(self, accession: str) -> SequenceRecord:
+        """One esearch -> esummary -> efetch round trip (see ``fetch``)."""
         uid = await self._esearch(accession)
         metadata = await self._esummary(uid)
 
