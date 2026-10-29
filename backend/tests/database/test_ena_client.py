@@ -144,7 +144,7 @@ async def test_search_empty_hit_list_is_not_an_error(
 
 async def test_search_non_array_payload_raises_malformed_payload() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"unexpected": "shape"})
+        return httpx.Response(200, json={"entries": {"unexpected": "shape"}})
 
     client = _client(handler)
     with pytest.raises(MalformedPayloadError):
@@ -154,7 +154,10 @@ async def test_search_non_array_payload_raises_malformed_payload() -> None:
 
 async def test_search_hit_without_accession_raises_malformed_payload() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"description": "no accession here"}])
+        return httpx.Response(
+            200,
+            json={"entries": [{"fields": {"description": ["no accession here"]}}]},
+        )
 
     client = _client(handler)
     with pytest.raises(MalformedPayloadError):
@@ -250,4 +253,24 @@ async def test_fetch_percent_encodes_accession_in_path() -> None:
         await client.fetch("../search?query=x#y")
     assert len(seen) == 1
     assert seen[0].endswith("/fasta/..%2Fsearch%3Fquery%3Dx%23y")
+    await client.close()
+
+
+async def test_search_uses_ebi_search_free_text_endpoint(
+    ena_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """ENA's browser API has no /search (it 404s): free text goes to EBI
+    Search, with max_results as ``size``."""
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return ena_happy_path_handler(request)
+
+    client = _client(handler)
+    await client.search("BRCA1", max_results=7)
+    assert seen[0].host == "www.ebi.ac.uk"
+    assert seen[0].path == "/ebisearch/ws/rest/embl"
+    assert seen[0].params["query"] == "BRCA1"
+    assert seen[0].params["size"] == "7"
     await client.close()

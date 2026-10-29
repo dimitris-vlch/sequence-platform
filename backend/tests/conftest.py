@@ -206,16 +206,32 @@ ENA_TEST_DESCRIPTION = "synthetic ENA test record"
 #: convention ``parse_fasta`` already handles).
 ENA_TEST_FASTA = f">{ENA_TEST_ACCESSION} {ENA_TEST_DESCRIPTION}\n{ENA_TEST_SEQUENCE}\n"
 
-#: ENA's ``GET /search?...&format=json`` response: a top-level JSON array of
-#: hit objects, each with at least ``accession`` and ``description``.
+#: EBI Search (``/ebisearch/ws/rest/embl?...&format=json``) hit objects, the
+#: shape ENA free-text search returns: ``id`` plus requested ``fields``, each
+#: field a list of values.
 ENA_TEST_SEARCH_HITS: list[dict[str, object]] = [
-    {"accession": ENA_TEST_ACCESSION, "description": ENA_TEST_DESCRIPTION},
-    {"accession": "AB000002.1", "description": "second synthetic ENA test record"},
+    {
+        "id": ENA_TEST_ACCESSION,
+        "source": "emblstandard",
+        "fields": {"description": [ENA_TEST_DESCRIPTION]},
+    },
+    {
+        "id": "AB000002.1",
+        "source": "emblstandard",
+        "fields": {"description": ["second synthetic ENA test record"]},
+    },
 ]
+
+#: The full EBI Search response body wrapping ``ENA_TEST_SEARCH_HITS``.
+ENA_TEST_SEARCH_RESPONSE: dict[str, object] = {
+    "hitCount": len(ENA_TEST_SEARCH_HITS),
+    "entries": ENA_TEST_SEARCH_HITS,
+    "facets": [],
+}
 
 #: Accessions of the synthetic search hits, in the order ENA returns them.
 ENA_TEST_SEARCH_ACCESSIONS: tuple[str, ...] = tuple(
-    str(hit["accession"]) for hit in ENA_TEST_SEARCH_HITS
+    str(hit["id"]) for hit in ENA_TEST_SEARCH_HITS
 )
 
 
@@ -224,7 +240,7 @@ def ena_happy_path_handler() -> Callable[[httpx.Request], httpx.Response]:
     """A transport handler that resolves ``ENA_TEST_ACCESSION`` normally.
 
     Routes by the browser-API path: ``/fasta/{accession}`` returns
-    ``ENA_TEST_FASTA`` and ``/search`` returns ``ENA_TEST_SEARCH_HITS``. Any
+    ``ENA_TEST_FASTA`` and EBI Search returns ``ENA_TEST_SEARCH_RESPONSE``. Any
     other path raises, so a test that hits an unexpected endpoint fails
     loudly instead of silently.
     """
@@ -234,8 +250,8 @@ def ena_happy_path_handler() -> Callable[[httpx.Request], httpx.Response]:
             return httpx.Response(
                 200, text=ENA_TEST_FASTA, headers={"content-type": "text/plain"}
             )
-        if request.url.path.endswith("/search"):
-            return httpx.Response(200, json=ENA_TEST_SEARCH_HITS)
+        if request.url.path.endswith("/ebisearch/ws/rest/embl"):
+            return httpx.Response(200, json=ENA_TEST_SEARCH_RESPONSE)
         raise AssertionError(f"unexpected ENA request: {request.url}")
 
     return handler
@@ -253,8 +269,8 @@ def ena_not_found_handler() -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         if "/fasta/" in request.url.path:
             return httpx.Response(404)
-        if request.url.path.endswith("/search"):
-            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/ebisearch/ws/rest/embl"):
+            return httpx.Response(200, json={"hitCount": 0, "entries": []})
         raise AssertionError(f"unexpected ENA request: {request.url}")
 
     return handler
