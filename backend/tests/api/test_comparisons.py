@@ -77,3 +77,18 @@ async def test_compare_not_found(ncbi_not_found_transport: httpx.MockTransport) 
         response = await client.get("/api/compare", params=_compare_params())
     assert response.status_code == 404
     assert "detail" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_compare_oversized_records_is_422(
+    ncbi_transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pair too large for the quadratic edit distance is the caller's
+    problem (422), never a stalled worker or a 500."""
+    from sequence_platform.analysis.distance import base as distance_base
+
+    monkeypatch.setattr(distance_base, "MAX_LEVENSHTEIN_CELLS", 10)
+    async with _client(ncbi_transport) as client:
+        response = await client.get("/api/compare", params=_compare_params())
+    assert response.status_code == 422
+    assert "too long" in response.json()["detail"]

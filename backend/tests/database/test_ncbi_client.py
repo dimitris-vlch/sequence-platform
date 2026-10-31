@@ -193,3 +193,85 @@ async def test_efetch_multi_record_payload_raises_malformed_payload() -> None:
     with pytest.raises(MalformedPayloadError):
         await client.fetch(NCBI_TEST_ACCESSION)
     await client.close()
+
+
+async def test_fetch_restricts_esearch_to_accession_field(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """fetch() must not run a free-text esearch, which can resolve an
+    accession-like term to an unrelated record."""
+    terms: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("esearch.fcgi"):
+            terms.append(request.url.params.get("term"))
+        return ncbi_happy_path_handler(request)
+
+    client = _client(handler)
+    await client.fetch(NCBI_TEST_ACCESSION)
+    assert terms == [f"{NCBI_TEST_ACCESSION}[accn]"]
+    await client.close()
+
+
+async def test_concurrent_fetches_of_one_accession_share_one_lookup(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """The detail view fetches record + statistics + QC at once; that must
+    cost NCBI one esearch/esummary/efetch round trip, not three."""
+    import asyncio
+
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path.rsplit("/", 1)[-1])
+        return ncbi_happy_path_handler(request)
+
+    client = _client(handler)
+    records = await asyncio.gather(
+        *(client.fetch(NCBI_TEST_ACCESSION) for _ in range(3))
+    )
+    assert [r.sequence for r in records] == [NCBI_TEST_SEQUENCE] * 3
+    assert records[0] is not records[1]  # callers get independent copies
+    assert sorted(paths) == ["efetch.fcgi", "esearch.fcgi", "esummary.fcgi"]
+    await client.fetch(NCBI_TEST_ACCESSION)  # served from cache
+    assert len(paths) == 3
+    await client.close()
+
+
+async def test_failed_fetch_is_not_cached(
+    ncbi_not_found_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return ncbi_not_found_handler(request)
+
+    client = _client(handler)
+    for _ in range(2):
+        with pytest.raises(AccessionNotFoundError):
+            await client.fetch("NOPE_1")
+    assert calls == 2
+    await client.close()
+
+
+async def test_requests_are_spaced_by_min_interval(
+    ncbi_happy_path_handler: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    starts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        starts.append(loop.time())
+        return ncbi_happy_path_handler(request)
+
+    client = NCBISequenceDatabase(
+        transport=httpx.MockTransport(handler), max_retries=0, min_interval=0.05
+    )
+    await client.fetch(NCBI_TEST_ACCESSION)
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert len(gaps) == 2 and min(gaps) >= 0.045
+    await client.close()

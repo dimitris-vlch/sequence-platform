@@ -70,4 +70,19 @@ describe("SequenceSearch", () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("hides results after the database changes", async () => {
+    installFetchMock(SEARCH_ROUTE);
+    const { rerender } = render(
+      <SequenceSearch database="ncbi" onSelect={() => {}} />,
+    );
+    await userEvent.type(screen.getByLabelText("Query"), "test");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(
+      await screen.findByRole("button", { name: "NM_000001.1" }),
+    ).toBeInTheDocument();
+
+    rerender(<SequenceSearch database="ena" onSelect={() => {}} />);
+    expect(screen.queryByRole("button", { name: "NM_000001.1" })).toBeNull();
+  });
 });

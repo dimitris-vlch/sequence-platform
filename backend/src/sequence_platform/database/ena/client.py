@@ -50,6 +50,7 @@ import asyncio
 import logging
 import random
 from typing import Any, ClassVar
+from urllib.parse import quote
 
 import httpx
 
@@ -65,6 +66,11 @@ from sequence_platform.models import SequenceRecord
 
 #: Default base URL for ENA's browser REST API.
 DEFAULT_ENA_BASE_URL = "https://www.ebi.ac.uk/ena/browser/api"
+
+#: Free-text search over ENA sequence records (EBI Search, ``embl`` domain).
+#: The browser API has no ``/search`` endpoint (it answers 404), and the ENA
+#: Portal API rejects free text, so free-text search goes through EBI Search.
+DEFAULT_EBI_SEARCH_URL = "https://www.ebi.ac.uk/ebisearch/ws/rest/embl"
 
 #: Retry decisions and terminal failures are logged (Stage 10), mirroring the
 #: NCBI client, so a deployment can tell a transient upstream blip from a
@@ -82,6 +88,8 @@ class ENASequenceDatabase(SequenceDatabase):
     Args:
         base_url: Base URL of the ENA browser API. Defaults to the public
             ENA endpoint; override for tests or mirrors.
+        search_url: Free-text search endpoint (EBI Search, ``embl``
+            domain). Defaults to the public EBI endpoint.
         timeout: Per-request timeout in seconds.
         max_retries: Number of retries after the initial attempt for
             transient failures (5xx, timeouts, network errors, 429).
@@ -97,6 +105,7 @@ class ENASequenceDatabase(SequenceDatabase):
         self,
         *,
         base_url: str = DEFAULT_ENA_BASE_URL,
+        search_url: str = DEFAULT_EBI_SEARCH_URL,
         timeout: float = 30.0,
         max_retries: int = 3,
         backoff_base: float = 1.0,
@@ -104,6 +113,7 @@ class ENASequenceDatabase(SequenceDatabase):
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._search_url = search_url
         self._timeout = timeout
         self._max_retries = max_retries
         self._backoff_base = backoff_base
@@ -138,7 +148,10 @@ class ENASequenceDatabase(SequenceDatabase):
             UpstreamUnavailableError / RateLimitedError: On exhausted
                 transient failures, per the module docstring.
         """
-        url = f"{self._base_url}/fasta/{accession}"
+        # Percent-encode the accession as a single path segment: it is user
+        # input, and an unescaped "/", "?" or "#" would otherwise reach a
+        # different ENA endpoint than /fasta/{accession}.
+        url = f"{self._base_url}/fasta/{quote(accession, safe='')}"
         response = await self._request("GET", url)
         try:
             records = parse_fasta(response.text, infer_seq_type=True)
@@ -165,9 +178,9 @@ class ENASequenceDatabase(SequenceDatabase):
         """Search ENA by free-text query.
 
         Args:
-            query: Free-text query for ENA's search endpoint.
+            query: Free-text query, sent to EBI Search's ``embl`` domain.
             max_results: Upper bound on the number of summaries returned;
-                passed through as the endpoint's ``limit`` parameter.
+                passed through as EBI Search's ``size`` parameter.
 
         Returns:
             One summary per hit, in the order ENA returns them. ``length``
@@ -177,46 +190,51 @@ class ENASequenceDatabase(SequenceDatabase):
             ``metadata``. An empty hit list is a normal, non-error result.
 
         Raises:
-            MalformedPayloadError: If the response is not a JSON array of
-                hit objects with an ``accession`` field.
+            MalformedPayloadError: If the response is not an EBI Search
+                object whose ``entries`` are hit objects with an ``id``.
             UpstreamUnavailableError / RateLimitedError: On exhausted
                 transient failures, per the module docstring.
         """
         response = await self._request(
             "GET",
-            f"{self._base_url}/search",
+            self._search_url,
             params={
                 "query": query,
-                "result": "sequence",
+                "size": max_results,
                 "format": "json",
-                "limit": max_results,
+                "fields": "description",
             },
         )
         payload = _parse_json(response, "search")
-        if not isinstance(payload, list):
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
             raise MalformedPayloadError(
-                f"Expected a JSON array of hits from ENA search, "
-                f"got {type(payload).__name__}"
+                "Expected an EBI Search JSON object with an 'entries' array "
+                f"from ENA search, got {type(payload).__name__}"
             )
-        return [self._summary_from_hit(hit) for hit in payload]
+        return [self._summary_from_hit(hit) for hit in entries]
 
     def _summary_from_hit(self, hit: Any) -> SequenceSummary:
         """Map one raw search hit to a ``SequenceSummary``.
 
         Raises:
             MalformedPayloadError: If the hit is not an object or lacks a
-                usable ``accession``.
+                usable ``id`` (the accession).
         """
         if not isinstance(hit, dict):
             raise MalformedPayloadError(
                 f"Expected a JSON object for an ENA search hit, got {type(hit).__name__}"
             )
-        accession = hit.get("accession")
+        accession = hit.get("id")
         if not isinstance(accession, str) or not accession:
             raise MalformedPayloadError(
-                f"ENA search hit is missing a usable accession field: {hit!r}"
+                f"ENA search hit is missing a usable id field: {hit!r}"
             )
-        description = hit.get("description")
+        fields = hit.get("fields")
+        descriptions = fields.get("description") if isinstance(fields, dict) else None
+        description = (
+            descriptions[0] if isinstance(descriptions, list) and descriptions else None
+        )
         return SequenceSummary(
             accession=accession,
             title=description if isinstance(description, str) else "",

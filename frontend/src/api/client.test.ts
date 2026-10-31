@@ -131,6 +131,18 @@ describe("api client", () => {
     expect(httpErrorDetail(500, "not json")).toBe("not json");
   });
 
+  it("flattens FastAPI validation error lists instead of [object Object]", () => {
+    const body = JSON.stringify({
+      detail: [
+        { loc: ["query", "max_results"], msg: "Input should be less than or equal to 100", type: "x" },
+        { loc: ["query", "k"], msg: "Input should be greater than or equal to 1", type: "y" },
+      ],
+    });
+    expect(httpErrorDetail(422, body)).toBe(
+      "max_results: Input should be less than or equal to 100; k: Input should be greater than or equal to 1",
+    );
+  });
+
   it("builds export download URLs that mirror their routes", () => {
     expect(sequenceFastaExportUrl("ncbi", "NM_000001.1")).toBe(
       "/api/export/sequence/NM_000001.1/fasta?database=ncbi",

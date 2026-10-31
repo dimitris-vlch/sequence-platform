@@ -50,8 +50,8 @@ class SequenceValidationError(ValueError):
 
 
 def _normalise(sequence: str) -> str:
-    """Upper-case and strip whitespace/newlines from raw input."""
-    return sequence.upper().replace("\n", "").replace("\r", "").replace(" ", "")
+    """Upper-case and strip all whitespace (spaces, tabs, CR/LF) from raw input."""
+    return "".join(sequence.upper().split())
 
 
 def _invalid_chars(sequence: str, seq_type: SeqType) -> frozenset[str]:
@@ -105,8 +105,6 @@ def validate_sequence(
             f"{''.join(sorted(allowed))})"
         )
 
-    if min_length is not None and len(normalised) < min(1, min_length) is False:
-        pass
     effective_min = min_length if min_length is not None else 1
     if len(normalised) < effective_min:
         raise SequenceValidationError(
