@@ -162,10 +162,12 @@ they are made (Stage 2 onward).
   raises `ValueError` on unequal lengths — never truncates or pads),
   `percent_identity` (`100 * matches / length`, rounded to 2 dp; two empty
   sequences → `100.0`), and `levenshtein_distance` (classic unit-cost edit
-  distance via a full O(n·m) DP table; works on unequal lengths). All three
-  upper-case both inputs once (reusing the Stage 4 `_normalised` helper) so
-  comparison is case-insensitive; ambiguity characters are treated as ordinary
-  characters (byte-for-byte equality — no IUPAC overlap).
+  distance, O(n·m), computed as a score-only unit-cost global alignment in
+  Biopython's C aligner; works on unequal lengths; capped at 10⁸ cells). All
+  three upper-case both inputs once (reusing the Stage 4 `_normalised` helper)
+  so comparison is case-insensitive, and map `U` to `T` so a DNA record and
+  its RNA counterpart compare as identical; ambiguity characters are treated
+  as ordinary characters (byte-for-byte equality — no IUPAC overlap).
 - **`analysis/similarity`** (`analysis/similarity/base.py`): pure pairwise
   similarity built on the distance metrics. `normalized_edit_similarity`
   (`100 * (1 - lev / max(len_a, len_b))`, clamped to `[0, 100]`, 2 dp; two

@@ -231,7 +231,13 @@ export function AlignmentView({
   const [mismatchScore, setMismatchScore] = useState("-1");
   const [openGapScore, setOpenGapScore] = useState("-2");
   const [extendGapScore, setExtendGapScore] = useState("-0.5");
-  const [result, setResult] = useState<AlignmentResponse | null>(null);
+  // The database is stored with the result: the export links must refetch
+  // from the database the alignment was computed on, not whatever the
+  // selector shows after the user changes it.
+  const [result, setResult] = useState<{
+    database: string;
+    response: AlignmentResponse;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -246,20 +252,19 @@ export function AlignmentView({
     setError(null);
     const trimmedB = accessionB.trim();
     try {
-      setResult(
-        await alignSequences({
-          accessionA: trimmedA,
-          // Omitted rather than sent empty: the API's default is "" and it
-          // treats a falsy accession B as "align A against itself".
-          accessionB: trimmedB === "" ? undefined : trimmedB,
-          database,
-          mode,
-          match_score: parseScore(matchScore, 1.0),
-          mismatch_score: parseScore(mismatchScore, -1.0),
-          open_gap_score: parseScore(openGapScore, -2.0),
-          extend_gap_score: parseScore(extendGapScore, -0.5),
-        }),
-      );
+      const response = await alignSequences({
+        accessionA: trimmedA,
+        // Omitted rather than sent empty: the API's default is "" and it
+        // treats a falsy accession B as "align A against itself".
+        accessionB: trimmedB === "" ? undefined : trimmedB,
+        database,
+        mode,
+        match_score: parseScore(matchScore, 1.0),
+        mismatch_score: parseScore(mismatchScore, -1.0),
+        open_gap_score: parseScore(openGapScore, -2.0),
+        extend_gap_score: parseScore(extendGapScore, -0.5),
+      });
+      setResult({ database, response });
     } catch (err: unknown) {
       setResult(null);
       setError(errorMessage(err));
@@ -362,7 +367,12 @@ export function AlignmentView({
         </p>
       ) : null}
 
-      {result ? <AlignmentResultPanel result={result} database={database} /> : null}
+      {result ? (
+        <AlignmentResultPanel
+          result={result.response}
+          database={result.database}
+        />
+      ) : null}
     </section>
   );
 }

@@ -30,7 +30,13 @@ export function ComparisonView({
   const [accessionA, setAccessionA] = useState("");
   const [accessionB, setAccessionB] = useState("");
   const [k, setK] = useState(4);
-  const [result, setResult] = useState<ComparisonResponse | null>(null);
+  // The database is stored with the result, so the export link refetches
+  // from the database the comparison was computed on.
+  const [compared, setCompared] = useState<{
+    database: string;
+    response: ComparisonResponse;
+  } | null>(null);
+  const result = compared?.response ?? null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,18 +51,17 @@ export function ComparisonView({
     setError(null);
     const trimmedB = accessionB.trim();
     try {
-      setResult(
-        await compareSequences({
-          accessionA: trimmedA,
-          // Omitted rather than sent empty: the API's default is "" and it
-          // treats a falsy accession B as "compare A with itself".
-          accessionB: trimmedB === "" ? undefined : trimmedB,
-          database,
-          k,
-        }),
-      );
+      const response = await compareSequences({
+        accessionA: trimmedA,
+        // Omitted rather than sent empty: the API's default is "" and it
+        // treats a falsy accession B as "compare A with itself".
+        accessionB: trimmedB === "" ? undefined : trimmedB,
+        database,
+        k,
+      });
+      setCompared({ database, response });
     } catch (err: unknown) {
-      setResult(null);
+      setCompared(null);
       setError(errorMessage(err));
     } finally {
       setLoading(false);
@@ -166,7 +171,7 @@ export function ComparisonView({
             href={comparisonJsonExportUrl({
               accessionA: result.accession_a,
               accessionB: result.accession_b,
-              database,
+              database: compared?.database ?? database,
               k: result.k,
             })}
             download

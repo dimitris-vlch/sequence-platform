@@ -36,7 +36,8 @@ def _upper(record_or_sequence: SequenceLike) -> str:
     ``SeqType.DNA`` is a placeholder: these functions only read the normalised
     string and do not validate against any alphabet, so seq_type is unused.
     """
-    return _normalised(record_or_sequence, SeqType.DNA)[0]
+    # ``U`` -> ``T``, as in the distance module, so DNA vs RNA k-mers match.
+    return _normalised(record_or_sequence, SeqType.DNA)[0].replace("U", "T")
 
 
 @dataclass

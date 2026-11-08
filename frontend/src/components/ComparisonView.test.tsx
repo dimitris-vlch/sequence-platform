@@ -96,4 +96,18 @@ describe("ComparisonView", () => {
       "/api/export/compare/json?accession_a=NM_000001.1&accession_b=NM_000001.1&database=ncbi&k=4",
     );
   });
+
+  it("keeps the export link on the database the result came from", async () => {
+    installFetchMock(ROUTES);
+    render(<ComparisonView />);
+    await screen.findByRole("option", { name: "ena" });
+    await userEvent.type(screen.getByLabelText("Accession A"), "NM_000001.1");
+    await userEvent.click(screen.getByRole("button", { name: "Compare" }));
+    await screen.findByTestId("compare-result");
+
+    // Switching the selector afterwards must not retarget the download.
+    await userEvent.selectOptions(screen.getByLabelText("Database"), "ena");
+    const href = screen.getByTestId("compare-export-json").getAttribute("href");
+    expect(href).toContain("database=ncbi");
+  });
 });

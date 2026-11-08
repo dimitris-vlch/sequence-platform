@@ -6,7 +6,8 @@ edit distance. No I/O, no network, no ``database`` or ``api`` imports
 
 Semantics (``docs/architecture.md`` §6, Stage 5):
 
-- All functions upper-case both inputs once, so comparison is case-insensitive.
+- All functions upper-case both inputs once, so comparison is case-insensitive,
+  and map ``U`` to ``T``, so a DNA record matches its RNA counterpart.
 - ``hamming_distance`` and ``percent_identity`` compare the full length and
   therefore require the two sequences to be equal length; they raise
   ``ValueError`` otherwise (they never silently truncate or pad). A match is
@@ -23,6 +24,8 @@ after upper-casing; nothing "smarter" (no IUPAC overlap) is attempted.
 
 from __future__ import annotations
 
+from Bio.Align import PairwiseAligner
+
 from sequence_platform.analysis.statistics.base import SequenceLike, _normalised
 from sequence_platform.models import SeqType
 
@@ -34,19 +37,36 @@ __all__ = [
 ]
 
 #: Upper bound on ``len(a) * len(b)`` for :func:`levenshtein_distance`
-#: (≈ two 3.1 kb sequences, ~1.5 s of pure-Python work). Larger inputs raise
-#: ``ValueError``, which the API maps to 422 instead of blocking the server.
-MAX_LEVENSHTEIN_CELLS = 10_000_000
+#: (≈ two 10 kb sequences, ~0.2 s in Biopython's C dynamic programme — the
+#: same bound as pairwise alignment). Larger inputs raise ``ValueError``,
+#: which the API maps to 422 instead of blocking the server.
+MAX_LEVENSHTEIN_CELLS = 100_000_000
 
 
 def _upper(record_or_sequence: SequenceLike) -> str:
-    """Return the upper-cased sequence text (reuses the Stage 4 normaliser).
+    """Return the upper-cased sequence text in the DNA alphabet.
 
-    ``SeqType.DNA`` is a placeholder here: these functions only read the
-    normalised string and do not validate against any alphabet, so the
-    seq_type argument is unused.
+    ``U`` is mapped to ``T`` so that a DNA record and its RNA counterpart
+    compare as identical rather than mismatching at every T/U position;
+    nothing else in either alphabet changes. ``SeqType.DNA`` is a placeholder:
+    these functions only read the normalised string.
     """
-    return _normalised(record_or_sequence, SeqType.DNA)[0]
+    return _normalised(record_or_sequence, SeqType.DNA)[0].replace("U", "T")
+
+
+def _edit_distance_aligner() -> PairwiseAligner:
+    """Global aligner whose score is minus the Levenshtein distance.
+
+    Unit cost for a substitution, insertion or deletion. Built per call
+    (cheap) rather than shared, since routes run this in a thread pool.
+    """
+    return PairwiseAligner(
+        mode="global",
+        match_score=0.0,
+        mismatch_score=-1.0,
+        open_gap_score=-1.0,
+        extend_gap_score=-1.0,
+    )
 
 
 def hamming_distance(record_a: SequenceLike, record_b: SequenceLike) -> int:
@@ -141,14 +161,14 @@ def levenshtein_distance(record_a: SequenceLike, record_b: SequenceLike) -> int:
     ------
     ValueError
         If ``len(a) * len(b)`` exceeds :data:`MAX_LEVENSHTEIN_CELLS`. The
-        dynamic programme is pure Python and quadratic in time, so an
+        dynamic programme is quadratic in time, so an
         unbounded input (e.g. two whole chromosomes) would stall the server.
 
     Notes
     -----
-    Classic O(n·m)-time dynamic programme with no third-party dependency.
-    Only two rows of the table are kept, so memory is O(min(n, m)) rather
-    than O(n·m); the result is identical to the full-table version.
+    Classic O(n·m)-time dynamic programme, computed as the score of a global
+    alignment with unit costs in Biopython's C aligner (score-only, so
+    memory is linear); the result equals the textbook Levenshtein distance.
     """
     seq_a = _upper(record_a)
     seq_b = _upper(record_b)
@@ -158,21 +178,9 @@ def levenshtein_distance(record_a: SequenceLike, record_b: SequenceLike) -> int:
             f"sequences too long for edit distance ({len(seq_a)} x {len(seq_b)} "
             f"= {cells} cells; limit {MAX_LEVENSHTEIN_CELLS})"
         )
-    # Iterate over the longer sequence so the kept rows are the shorter one.
-    if len(seq_b) > len(seq_a):
-        seq_a, seq_b = seq_b, seq_a
-    m = len(seq_b)
-
-    # prev[j] = edit distance between seq_a[:i-1] and seq_b[:j];
-    # row 0 is j (insert j characters).
-    prev = list(range(m + 1))
-    for i, a_char in enumerate(seq_a, start=1):
-        row = [i] + [0] * m
-        for j in range(1, m + 1):
-            if a_char == seq_b[j - 1]:
-                row[j] = prev[j - 1]
-            else:
-                row[j] = 1 + min(prev[j], row[j - 1], prev[j - 1])
-        prev = row
-
-    return prev[m]
+    if not seq_a or not seq_b:
+        return max(len(seq_a), len(seq_b))
+    # Score-only global alignment in Biopython's C code: same O(n*m) time
+    # as the textbook dynamic programme, linear memory, no traceback, and
+    # ~50x faster than the former pure-Python loop.
+    return int(round(-_edit_distance_aligner().score(seq_a, seq_b)))
