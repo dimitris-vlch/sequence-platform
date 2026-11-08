@@ -137,4 +137,21 @@ describe("AlignmentView", () => {
     expect(textHref).toContain("/api/export/align/text?");
     expect(textHref).toContain("mode=global");
   });
+
+  it("keeps the export links on the database the result came from", async () => {
+    installFetchMock(ROUTES);
+    render(<AlignmentView />);
+    await screen.findByRole("option", { name: "ena" });
+    await userEvent.type(screen.getByLabelText("Accession A"), "NM_000001.1");
+    await userEvent.click(screen.getByRole("button", { name: "Align" }));
+    await screen.findByTestId("align-result");
+
+    // Switching the selector afterwards must not retarget the downloads.
+    await userEvent.selectOptions(screen.getByLabelText("Database"), "ena");
+    for (const id of ["align-export-json", "align-export-text"]) {
+      expect(screen.getByTestId(id).getAttribute("href")).toContain(
+        "database=ncbi",
+      );
+    }
+  });
 });

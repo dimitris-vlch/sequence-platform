@@ -165,6 +165,7 @@ class ENASequenceDatabase(SequenceDatabase):
                 f"{accession!r}, got {len(records)}"
             )
         record = records[0]
+        record.accession = _ena_accession(record.accession)
         record.source_database = self.name
         record.metadata = {
             "ena_fasta_raw": response.text,
@@ -382,6 +383,22 @@ class ENASequenceDatabase(SequenceDatabase):
             return float(header)
         except ValueError:
             return None
+
+
+def _ena_accession(header_token: str) -> str:
+    """The accession from the first token of an ENA FASTA title line.
+
+    ENA titles look like ``>ENA|MN908947|MN908947.3 description``: the first
+    token is ``ENA|<accession>|<versioned accession>``. The versioned
+    accession is the record's identity (ENA's ``/fasta`` endpoint accepts it,
+    but answers 400 for the whole pipe-delimited token), so it is what the
+    record carries — and what export links later fetch again. A token without
+    that prefix is returned unchanged.
+    """
+    parts = header_token.split("|")
+    if len(parts) >= 2 and parts[0] == "ENA" and parts[-1]:
+        return parts[-1]
+    return header_token
 
 
 def _parse_json(response: httpx.Response, step: str) -> Any:

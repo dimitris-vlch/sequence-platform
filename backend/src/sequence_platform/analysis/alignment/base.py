@@ -18,6 +18,11 @@ them.
 Edge cases:
 
 - Empty input (either sequence is ``""``) raises ``ValueError``.
+- Non-finite scores, or a positive gap score, raise ``ValueError``.
+- A local alignment with no positive-scoring pair returns the empty
+  alignment (score 0, empty strings, all coordinates 0).
+- Aligning a DNA record against an RNA record compares both in the DNA
+  alphabet (``U`` -> ``T``), so the gapped strings show ``T``.
 - Tied optimal alignments: Biopython returns them in deterministic order;
   we take the first (``alignments[0]``). This is documented as the
   project's tie-breaking convention.
@@ -25,6 +30,7 @@ Edge cases:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from Bio.Align import PairwiseAligner
@@ -88,8 +94,31 @@ def _run_alignment(
     extend_gap_score: float,
 ) -> AlignmentResult:
     """Shared implementation for global and local alignment."""
-    seq_a, _ = _normalised(a, SeqType.DNA)
-    seq_b, _ = _normalised(b, SeqType.DNA)
+    scores = {
+        "match_score": match_score,
+        "mismatch_score": mismatch_score,
+        "open_gap_score": open_gap_score,
+        "extend_gap_score": extend_gap_score,
+    }
+    for label, value in scores.items():
+        # Biopython's C aligner segfaults on an infinite gap score (taking the
+        # whole server process down) and silently produces garbage for NaN,
+        # so non-finite scores are refused before they reach it.
+        if not math.isfinite(value):
+            raise ValueError(f"{label} must be a finite number (got {value})")
+    for label in ("open_gap_score", "extend_gap_score"):
+        # A positive gap score rewards gaps: the optimum becomes "gap
+        # everything" with an inflated score, which is never meaningful.
+        if scores[label] > 0:
+            raise ValueError(f"{label} must be <= 0 (got {scores[label]})")
+
+    seq_a, type_a = _normalised(a, SeqType.DNA)
+    seq_b, type_b = _normalised(b, SeqType.DNA)
+    if type_a != type_b:
+        # DNA vs RNA: compare in the DNA alphabet, so T and U pair as the
+        # same base instead of scoring every T/U column as a mismatch.
+        seq_a = seq_a.replace("U", "T")
+        seq_b = seq_b.replace("U", "T")
 
     if not seq_a or not seq_b:
         raise ValueError(
@@ -110,7 +139,21 @@ def _run_alignment(
     aligner.extend_gap_score = extend_gap_score
 
     alignments = aligner.align(seq_a, seq_b)
-    best = alignments[0]
+    try:
+        best = alignments[0]
+    except IndexError:
+        # Local mode with no positive-scoring pair (e.g. "AAAA" vs "TTTT"):
+        # Biopython yields no alignment at all. The Smith-Waterman optimum is
+        # then the empty alignment, score 0.
+        return AlignmentResult(
+            score=0.0,
+            aligned_a="",
+            aligned_b="",
+            start_a=0,
+            end_a=0,
+            start_b=0,
+            end_b=0,
+        )
 
     coords = best.coordinates
     return AlignmentResult(
