@@ -7,10 +7,16 @@ export interface SequenceSearchProps {
   database: string;
   /** Called with a hit's accession when the user opens it. */
   onSelect: (accession: string) => void;
+  /** Accession currently open in the detail panel, highlighted in the list. */
+  selectedAccession?: string;
 }
 
 /** Free-text search form plus its results list. */
-export function SequenceSearch({ database, onSelect }: SequenceSearchProps) {
+export function SequenceSearch({
+  database,
+  onSelect,
+  selectedAccession,
+}: SequenceSearchProps) {
   const [query, setQuery] = useState("");
   const [maxResults, setMaxResults] = useState(20);
   const [result, setResult] = useState<{
@@ -108,14 +114,22 @@ export function SequenceSearch({ database, onSelect }: SequenceSearchProps) {
             </thead>
             <tbody>
               {response.results.map((hit) => (
-                <tr key={`${hit.source_database}:${hit.accession}`}>
+                // The whole row opens the hit, not only the accession button.
+                // The button stays as the keyboard/screen-reader control; its
+                // click bubbles up to this handler, so it still fires once.
+                <tr
+                  key={`${hit.source_database}:${hit.accession}`}
+                  className={
+                    hit.accession === selectedAccession
+                      ? "result-row selected"
+                      : "result-row"
+                  }
+                  aria-selected={hit.accession === selectedAccession}
+                  data-testid={`search-row-${hit.accession}`}
+                  onClick={() => onSelect(hit.accession)}
+                >
                   <td>
-                    <button
-                      type="button"
-                      onClick={() => onSelect(hit.accession)}
-                    >
-                      {hit.accession}
-                    </button>
+                    <button type="button">{hit.accession}</button>
                   </td>
                   <td>{hit.title || "—"}</td>
                   <td>{hit.length === null ? "—" : hit.length}</td>
