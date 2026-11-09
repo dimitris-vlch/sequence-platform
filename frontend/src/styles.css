@@ -122,6 +122,18 @@ body {
   vertical-align: top;
 }
 
+.app table.results tr.result-row {
+  cursor: pointer;
+}
+
+.app table.results tr.result-row:hover {
+  background: #161d36;
+}
+
+.app table.results tr.result-row.selected {
+  background: #1f2b55;
+}
+
 .app dl.kv {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

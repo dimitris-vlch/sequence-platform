@@ -85,4 +85,45 @@ describe("SequenceSearch", () => {
     rerender(<SequenceSearch database="ena" onSelect={() => {}} />);
     expect(screen.queryByRole("button", { name: "NM_000001.1" })).toBeNull();
   });
+
+  it("opens a hit when any part of its row is clicked", async () => {
+    installFetchMock(SEARCH_ROUTE);
+    const onSelect = vi.fn();
+    render(<SequenceSearch database="ncbi" onSelect={onSelect} />);
+    await userEvent.type(screen.getByLabelText("Query"), "test");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    const row = await screen.findByTestId("search-row-AB000001.1");
+    // Click the title cell, not the accession button.
+    await userEvent.click(row.querySelectorAll("td")[1] as HTMLElement);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("AB000001.1");
+  });
+
+  it("fires once when the accession button itself is clicked", async () => {
+    installFetchMock(SEARCH_ROUTE);
+    const onSelect = vi.fn();
+    render(<SequenceSearch database="ncbi" onSelect={onSelect} />);
+    await userEvent.type(screen.getByLabelText("Query"), "test");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "AB000001.1" }),
+    );
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("highlights the hit that is open", async () => {
+    installFetchMock(SEARCH_ROUTE);
+    render(
+      <SequenceSearch
+        database="ncbi"
+        onSelect={() => {}}
+        selectedAccession="AB000001.1"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText("Query"), "test");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    const row = await screen.findByTestId("search-row-AB000001.1");
+    expect(row).toHaveClass("selected");
+    expect(row).toHaveAttribute("aria-selected", "true");
+  });
 });

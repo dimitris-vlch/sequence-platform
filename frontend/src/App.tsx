@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage, fetchHealth, type HealthResponse } from "./api/client";
 import {
@@ -18,6 +18,15 @@ export default function App() {
   const [database, setDatabase] = useState("ncbi");
   const [selectedAccession, setSelectedAccession] = useState("");
   const [view, setView] = useState<View>("search");
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // Opening a hit renders its detail below a possibly long results table, so
+  // bring it into view; otherwise a click looks like it did nothing.
+  useEffect(() => {
+    if (selectedAccession !== "") {
+      detailRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedAccession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,16 +107,22 @@ export default function App() {
               setSelectedAccession("");
             }}
           />
-          <SequenceSearch database={database} onSelect={setSelectedAccession} />
-          {selectedAccession ? (
-            <SequenceDetail
-              database={database}
-              accession={selectedAccession}
-              key={`${database}:${selectedAccession}`}
-            />
-          ) : (
-            <p className="meta">Pick a search result to see its details.</p>
-          )}
+          <SequenceSearch
+            database={database}
+            onSelect={setSelectedAccession}
+            selectedAccession={selectedAccession}
+          />
+          <div ref={detailRef} data-testid="detail-anchor">
+            {selectedAccession ? (
+              <SequenceDetail
+                database={database}
+                accession={selectedAccession}
+                key={`${database}:${selectedAccession}`}
+              />
+            ) : (
+              <p className="meta">Pick a search result to see its details.</p>
+            )}
+          </div>
         </>
       ) : view === "compare" ? (
         <ComparisonView initialDatabase={database} />
